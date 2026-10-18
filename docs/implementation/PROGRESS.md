@@ -187,8 +187,45 @@ npm run test:e2e                   # → 175 passed，连跑 3 次全绿（稳�
 
 ## Phase 05 — 投票服务、事务和防重复
 
-**状态**：PENDING
+**状态**：PASSED
+**改动**：新增 `src/server/services/vote.ts`（状态机 + 事务服务）、`src/app/api/photos/[photoId]/vote/route.ts`、`tests/unit/vote-state-machine.test.ts`、`tests/integration/voting.test.ts`、`e2e/vote/voting.spec.ts`
+**执行过的命令**：
+```bash
+npx vitest run tests/unit           # → 124 passed (7 files)
+npx vitest run tests/integration    # → 68 passed (4 files)
+npx eslint . ; npx tsc --noEmit ; npx prettier --check
+npm run build                       # → exit 0
+npm run test:e2e                    # → 220 passed，连跑 3 次全绿
+```
+**测试**：单元 **124 通过 / 0 失败**；集成 **68 通过 / 0 失败**；E2E **220 通过 / 0 失败 / 0 跳过**（44 用例 × 5 浏览器），**连续 3 次全量运行结果一致**。
+**实际可验证的功能（DATA_API_STORAGE §2.2 完整状态机）**：
+- 状态机 **9 种组合逐一断言**：`0→+1` 插入 +1、`+1→+1` 幂等 0、`+1→0` 删除 -1、`+1→-1` **-2**、`-1→-1` 幂等 0、`-1→0` 删除 +1、`-1→+1` **+2**、`0→0` 无操作、`0→-1` 插入 -1。
+- 单元层验证：`value` **永不为 0**（撤销即删行）；重复请求幂等；连点 20 次同向箭头仍只累计 1 分。
+- **事务 + 唯一约束**：`setVote` 在一个事务内「读当前票 → 写/删 → 重新聚合」，聚合值**始终从 Vote 表重算**，不是累加维护值，因此响应值不可能与库内实际漂移。
+- **并发（VOTE-11）**：
+  - 20 个并发相同请求 → Vote 表**恰好 1 行**、value=1、score=1；
+  - 20 个并发混合请求 → 行数 ≤1、value ∈ {-1,1}；随后补一次确定性请求，其返回值与**重新统计全表**逐字段相等（upCount/downCount/score）；
+  - 10 个不同访客并发投票 → 聚合与表内容一致。
+- **独立身份**：A 赞成、B 反对后双方 score 均为 0；榜单中 `currentVisitorVote` 各自独立（A=1、B=-1、未投=0）。
+- **校验（VOTE-12）**：`value` 为 `5 / "1" / true / null / 2 / 1.5`、缺字段、夹带 `visitorId` → 一律 **400** 且 DB 行数不变；非 JSON body → 400；跨域 → **403 INVALID_ORIGIN** 且数据不变；未知 photoId → 404；响应体不含 cookie token 及其 SHA-256。
+- **限流（SEC-06）**：超过每分钟票数预算 → **429 + `Retry-After`**，且限流不破坏 Vote 表完整性。
+- **E2E（VOTE-07 榜单重排）**：为该用例新建独立地点并上传两张图，用多个独立访客投票把第二名推上第一，断言榜首确实切换、`rank` 仍为连续的 `[1,2]`、分差正确。
+
+**风险/问题（已修复）**：
+- **E2E 共享榜单竞态**：投票用例原先作用于共享的种子榜单，5 个浏览器项目并发投票会在两次读取之间改变分数，导致偶发失败（实测 3 次全量跑中 1 次 2 failed）。已改为**每个用例自建独立地点 + 自有照片**，所有绝对分断言均相对该基线；重排用例同理。改后连续 3 次全量 220/220。
+- `upCount` 断言曾误以为从 0 开始，实际种子数据已带票；改为与读取到的 baseline 比较。
+- Playwright `APIRequestContext.status()` 是**方法**，与 Web `Response.status`（属性）相反；两处分别踩过，已统一并加注释。
+- 集成测试里 `Promise.all` 的**数组顺序不等于事务提交顺序**，不能把最后一个响应当作最终状态；改为断言与顺序无关的不变量，再用一次确定性请求证明返回聚合是权威值。
+
 **下一 Phase**：06
+
+---
+
+## Phase 06 — 全站页面骨架和视觉还原
+
+**状态**：PENDING
+**下一 Phase**：07
+
 
 
 
