@@ -1,0 +1,134 @@
+// ISLE V1.0 data model — DATA_API_STORAGE §1.
+//
+// SQLite via Prisma 6. Constraints that the product depends on are declared as
+// database constraints, not application checks:
+//   * Vote @@id([photoId, visitorId]) is what makes "one visitor, one vote"
+//     true even under concurrent requests.
+//   * Place.normalizedName @@unique is what stops duplicate places.
+//   * Photo.uploadIdempotencyKey @@unique([visitorId, …]) is what stops a
+//     retried upload from creating a second photo.
+//
+// String lengths are enforced by Zod in the service layer; SQLite has no
+// length-constrained column type.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// A destination that owns a photo ranking.
+model Place {
+  id   String @id @default(cuid())
+
+  /// URL-safe ASCII identifier. Never derived from arbitrary user input alone:
+  /// non-ASCII names get an opaque suffix (see buildPlaceSlug).
+  slug String @unique
+
+  name String
+
+  /// Unicode-normalised, whitespace-collapsed name. The duplicate constraint
+  /// is on this column, so "桂山岛" and " 桂山 岛 " collide as intended.
+  normalizedName String @unique
+
+  region      String
+  description String @default("")
+  createdAt   DateTime @default(now())
+
+  photos Photo[]
+
+  @@index([createdAt])
+}
+
+/// An anonymous browser. Identity lives server-side: the cookie carries a random
+/// token, the database only stores its SHA-256 (DATA_API_STORAGE §2.3).
+model Visitor {
+  id          String   @id @default(cuid())
+  tokenHash   String   @unique
+  displayCode String   @unique
+  createdAt   DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+
+  photos Photo[]
+  votes Vote[]
+  rateBuckets RateBucket[]
+
+  @@index([createdAt])
+}
+
+model Photo {
+  id        String @id @default(cuid())
+  placeId   String
+  visitorId String
+
+  title       String
+  description String @default("")
+
+  /// Storage keys are opaque server-generated identifiers. The user-supplied
+  /// filename is never used to build a path.
+  originalKey    String  @unique
+  preview400Key  String?
+  preview1200Key String?
+
+  /// Preserved exactly as uploaded so the download response can reproduce the
+  /// original filename without re-encoding.
+  originalFileName String
+  originalMime     String
+  originalByteLength Int
+  originalSha256   String
+
+  /// Display dimensions after EXIF orientation is applied.
+  width  Int
+  height Int
+
+  /// PROCESSING | READY | FAILED | HIDDEN. Only the service layer may change
+  /// this, and only READY rows are publicly queryable.
+  status String @default("PROCESSING")
+
+  /// Per-visitor idempotency key; must be non-empty to enter the save path.
+  uploadIdempotencyKey String?
+
+  createdAt DateTime @default(now())
+
+  place   Place   @relation(fields: [placeId], references: [id], onDelete: Cascade)
+  visitor Visitor @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+  votes   Vote[]
+
+  @@index([placeId, status, createdAt])
+  @@index([visitorId, createdAt])
+  @@unique([visitorId, uploadIdempotencyKey])
+}
+
+/// One row per (photo, visitor) that has cast a vote. Withdrawing a vote
+/// DELETES the row — a value of 0 is never stored (DATA_API_STORAGE §1).
+model Vote {
+  photoId   String
+  visitorId String
+  value     Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  photo   Photo   @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  visitor Visitor @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+
+  @@id([photoId, visitorId])
+  @@index([photoId, value])
+}
+
+/// Durable quota counters. The high-frequency vote limiter lives in memory
+/// (ADR-009); anything that must survive a restart lives here.
+model RateBucket {
+  visitorId String
+  /// e.g. "place-create:2026-10-19"
+  bucket    String
+  count     Int      @default(0)
+  expiresAt DateTime
+
+  visitor Visitor @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+
+  @@id([visitorId, bucket])
+  @@index([expiresAt])
+}

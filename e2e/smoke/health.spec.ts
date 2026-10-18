@@ -18,6 +18,8 @@ test('health endpoint reports a writable, isolated storage root', async ({ reque
   const body = await response.json();
   expect(body.status).toBe('ok');
   expect(body.checks.config.ok).toBe(true);
+  // The database must be reachable and migrated, not merely present on disk.
+  expect(body.checks.database.ok).toBe(true);
   expect(body.checks.originalDir.ok).toBe(true);
   expect(body.checks.previewRoot.ok).toBe(true);
   expect(body.checks.tmpDir.ok).toBe(true);

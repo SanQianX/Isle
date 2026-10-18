@@ -83,6 +83,42 @@ npm audit --omit=dev --registry=https://registry.npmjs.org   # → found 0 vulne
 
 ## Phase 02 — 数据模型、迁移、服务端访客身份和地点
 
-**状态**：PENDING
+**状态**：PASSED
+**改动**：新增 `prisma/schema.prisma`（Place/Visitor/Photo/Vote/RateBucket）、`prisma/migrations/20261018175441_init/migration.sql`、`prisma.config.ts`、`src/server/db/client.ts`（WAL/busy_timeout/foreign_keys + 读写 pragma）、`src/server/auth/visitor.ts`、`src/server/http/request.ts`（Origin 校验 / 访客上下文 / 内存与持久限流）、`src/server/services/place.ts`、`src/lib/place-name.ts`、`src/app/api/{visitor,places,places/[placeId]}/route.ts`、`src/app/api/health/route.ts`（新增 DB 探针）、`scripts/seed.ts`、`scripts/seed-e2e.ts`、`tests/factories.ts`、`tests/unit/place-name.test.ts`、`tests/integration/{database,visitor-identity}.test.ts`、`e2e/identity/visitor-and-places.spec.ts`
+**执行过的命令**：
+```bash
+DATABASE_URL=… npx prisma migrate dev --name init   # → 20261018175441_init 已生成并应用
+npx prisma generate                                # → Prisma Client v6.19.3
+npx tsx .tmp-dev/probe.ts                          # → 验证 pragma 与 FK 真实生效（探针文件已删除）
+npx vitest run tests/unit                           # → 54 passed (3 files)
+npx vitest run tests/integration                    # → 28 passed (2 files)
+npx tsc --noEmit ; npx eslint . ; npx prettier --check   # → 全部 OK
+npm run build                                      # → exit 0
+npm run test:e2e                                   # → 65 passed (chromium/firefox/webkit/mobile-chrome/mobile-webkit)
+```
+**测试**：单元 **54 通过 / 0 失败**；集成 **28 通过 / 0 失败**；E2E **65 通过 / 0 失败 / 0 跳过**（13 用例 × 5 浏览器）。报告：`playwright-report/index.html`、`test-results/e2e-results.json`
+**实际可验证的功能**：
+- **迁移**：从空库建出 5 张表；集成测试直接执行已提交的 `migration.sql`，并断言 `Vote` 的复合主键列序为 `[photoId, visitorId]`、重复 `(photoId,visitorId)` 写入被数据库拒绝。
+- **SQLite 配置**：实测 `journal_mode=wal`、`busy_timeout=5000`、`foreign_keys=1`，并且**不是只读标志**——测试真的插入一条孤儿 Photo 并断言被拒（`Foreign key constraint violated`）；删除 Place 后 Photo 级联消失、Visitor 保留。
+- **访客身份**：`GET /api/visitor` 首次签发 cookie（`HttpOnly`/`SameSite=Lax`/`Path=/`/`Max-Age=31536000`），响应体只含 `访客 #xxxxxx`；同 cookie 重放身份不变且不再签发；新 context 身份不同；**篡改 cookie 被当作不存在**并重新签发；数据库只存 64 位十六进制 SHA-256，明文 token 永不落库（逐行断言）。http origin 下不带 `Secure`，https 下才用 `__Host-` 前缀（ADR-003）。
+- **地点**：默认 `桂山岛 / guishan-island` 幂等种子（连跑 3 次仍只有 1 行）；创建后另一访客立即可见；重名（含前后空格与全角空格）返回 **409 DUPLICATE_PLACE** 并带已有地点信息；**两个并发创建同名地点只有 1 个 201、1 个 409**，DB 中仅 1 行；跨域写返回 **403 INVALID_ORIGIN** 且库中行数不变；每日 3 个地点配额，第 4 次返回 **429 + Retry-After**；XSS 字符串按纯文本存储且 slug 经 ASCII 白名单派生不含 `<>&/%`；未知 slug 与 200 字符畸形 id 均为 404 且响应体不含 `SELECT` 或 `/var/lib/isle`。
+
+**风险/问题（已修复）**：
+- **正则转义事故**：曾用 `new RegExp('字符串')` 写字符类，JS 字符串里 `'\.'` 是恒等转义会退化成 `.`，`^\.+` 静默变成 `^.+`，导致 `safeFilename('sunset.jpg')` 把整个文件名删光返回 fallback；`'\s'` 同样退化成 `s`，把 "Island" 变成 "I land"。改为**正则字面量**后语义正确，并改用 `\p{Cc}\p{Cf}\p{Script=Han}` 等 Unicode 属性转义，使源文件保持纯 ASCII、不含字面控制字节。已加回归用例（`normalizePlaceName('Island')` 必须等于 `'Island'`）。
+- **`safeFilename` 真实缺陷**：`photo.jp eg` 原会被净化成 `photo.jpeg`——一个与真实原件不同的**合法扩展名**。改为：扩展名非纯字母数字时**整体丢弃**而非净化，保留完整净化后的文件名。
+- 路径穿越 `../../etc/passwd` 经分隔符替换后残留 `..`；改为先折叠所有多点游程再剥离前导点。
+- `run-e2e-isolated.mjs` 在 Windows 上以 `shell: true` 启动 `tsx`，仓库路径含空格被 shell 截断（ERR_MODULE_NOT_FOUND）。已加 `quoteForShell()`。
+- Playwright `response.headers()` 不保证暴露 `set-cookie`，WebKit cookie API 又把 Lax 报成 `None`；cookie 断言改为断言浏览器可观测事实（HttpOnly/Path/domain/token 长度≥43），**精确 Set-Cookie 头断言保留在集成测试**（直接读 `Response`）。
+- 5 浏览器并行跑同一数据库时，固定地点名会被并发创建 4 次并正确返回 409，属去重逻辑生效；测试改用每进程唯一名称。
+- JSDoc 注释里的 `prisma/migrations/*/migration.sql` 含 `*/`，提前终止注释块导致解析错误；已改写措辞。
+- Zod 4 中 `z.string().min(1, '必填')` 对 `undefined` 报的是类型错误而非自定义消息，改用 `z.string({ error: '…' })` 后「缺配置即中止启动」的提示才真正生效。
 **下一 Phase**：03
+
+---
+
+## Phase 03 — 原图上传、派生缩略图与磁盘存储
+
+**状态**：PENDING
+**下一 Phase**：04
+
 

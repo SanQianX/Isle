@@ -62,5 +62,5 @@ Thumbs.db
 .zcode/
 *.tsbuildinfo
 
-# Local build scratch
-.tmp-build/
+# Local scratch (builds, probes)
+.tmp-*/

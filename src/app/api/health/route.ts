@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { NextResponse } from 'next/server';
-import { getConfig, loadConfig } from '@/lib/config';
+import { loadConfig } from '@/lib/config';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -26,6 +26,24 @@ async function probeWritableDir(dir: string): Promise<StorageProbe> {
     await fs.rm(probePath, { force: true }).catch(() => undefined);
     const code = (error as NodeJS.ErrnoException).code ?? 'UNKNOWN';
     return { ok: false, reason: code };
+  }
+}
+
+/**
+ * Verify the database is readable with the schema the app expects.
+ * Reports the SQLite error code only — never the path or the SQL.
+ */
+async function probeDatabase(): Promise<StorageProbe> {
+  try {
+    const { getPrisma } = await import('@/server/db/client');
+    const prisma = await getPrisma();
+    // A trivial read is enough: it proves the file opens, the connection works
+    // and the schema is present without writing anything during a health check.
+    await prisma.place.count();
+    return { ok: true };
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return { ok: false, reason: typeof code === 'string' ? code : 'DB_UNAVAILABLE' };
   }
 }
 
@@ -54,7 +72,8 @@ export async function GET(): Promise<NextResponse> {
     );
   }
 
-  const [originalDir, previewRoot, tmpDir] = await Promise.all([
+  const [database, originalDir, previewRoot, tmpDir] = await Promise.all([
+    probeDatabase(),
     probeWritableDir(config.originalDir),
     probeWritableDir(config.previewRoot),
     probeWritableDir(config.uploadTmpDir),
@@ -62,12 +81,13 @@ export async function GET(): Promise<NextResponse> {
 
   const checks = {
     config: { ok: true as const },
+    database,
     originalDir,
     previewRoot,
     tmpDir,
   };
 
-  const healthy = originalDir.ok && previewRoot.ok && tmpDir.ok;
+  const healthy = database.ok && originalDir.ok && previewRoot.ok && tmpDir.ok;
 
   return NextResponse.json(
     {
@@ -86,6 +106,3 @@ export async function GET(): Promise<NextResponse> {
     },
   );
 }
-
-// Convenience re-export so Phase 02+ can extend without changing the route path.
-export { getConfig };

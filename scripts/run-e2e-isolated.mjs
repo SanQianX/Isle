@@ -58,12 +58,24 @@ function assertSafeTemp(target) {
   return resolved;
 }
 
+// `shell: true` is required on Windows for npx, but it means the shell - not
+// Node - splits the command line. This repo path contains a space, so an
+// unquoted argument is truncated at the space and the child dies with
+// ERR_MODULE_NOT_FOUND.
+const usesShell = process.platform === 'win32';
+
+function quoteForShell(arg) {
+  if (!usesShell) return arg;
+  return /[\s"^&|<>()]/.test(arg) ? `"${arg.replace(/"/g, '\\"')}"` : arg;
+}
+
 function run(command, args, options = {}) {
+  const finalArgs = args.map(quoteForShell);
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const child = spawn(command, finalArgs, {
       cwd: repoRoot,
       stdio: options.quiet ? 'pipe' : 'inherit',
-      shell: process.platform === 'win32',
+      shell: usesShell,
       env: { ...process.env, ...(options.env ?? {}) },
     });
     let output = '';
