@@ -232,3 +232,63 @@ V4.1 原型把访客编号与投票存在 `localStorage`，任何人可改。`DA
 
 **理由**
 可测试性（组件级 RTL 定位）、可维护性、以及避免把「演示用 localStorage 逻辑」当成生产实现带进来。
+
+---
+
+## ADR-013 — 生产依赖清零；5 项 dev-only 告警作为已记录的风险接受
+
+**状态**：accepted（风险接受）
+
+**背景**
+`TEST_STRATEGY` §8 规定：`npm audit` 的**高危/严重生产依赖**阻断发版，例外必须有清楚的风险接受记录。首次审计（`npm audit --omit=dev`）得到 6 项漏洞、5 项 high：
+
+| 依赖链 | 严重度 | 公告 |
+|---|---|---|
+| `sharp` 0.34.5 → libvips / libheif / librsvg | high ×5 | GHSA-f88m-g3jw-g9cj, GHSA-rgj7-g3m4-5g8c, GHSA-wq5f-xc86-pv6w |
+| 初次安装后重新审计 | — | 详见下方最终状态 |
+
+**决策与实测**
+
+1. **`sharp` 0.34.5 → 0.35.5**（`dependencies`，随运行时发布）。
+   理由：vips 8.18.7 / heif 1.23.5 / rsvg 2.63.2 修复上述公告。已验证 `require('sharp')` 加载、WebP 编码、JPEG/PNG 解码入口均正常。
+
+2. **`vitest` 3.2.7 → 4.1.12**（`devDependencies`）。
+   理由：vitest 3 依赖 `tinypool@^1`，命中 **critical**「Tinypool Prototype Pollution Gadget to RCE」，另有 critical「Vitest Path Traversal via @vitest/mocker Redirect Mock」。vitest 4.1.12 的依赖表中已无 `tinypool`（改用 `obug`/`tinyexec`），两条 critical 一并消除。实测 `npm ls tinypool` → `(empty)`。
+
+3. **`overrides: { "postcss": "8.5.30" }`**。
+   理由：next@15.5.28 内部锁定 `postcss@8.4.31`，命中 high「PostCSS Arbitrary File Read via sourceMappingURL」等 4 项。`npm audit fix` 唯一的修复路径是把 next 升到 16，但 `MASTER_PLAN` §版本基线**明确要求使用 15.5.28，不得使用旧 15.x 漏洞版本**，升级到 16 属于擅自改变既定技术基线。改用 override 强制 next 使用已修复的 postcss 8.5.30（同为 8.x 主版本，API 兼容），保留 Next 15.5.28 基线同时清除告警。实测构建通过、`npm audit --omit=dev` 为 0。
+
+4. **`overrides: { "deepmerge-ts": "8.0.2" }`**。
+   理由：prisma@6.19.3 → `@prisma/config` → `deepmerge-ts@7.1.5`，命中 high「DeepmergeTS 递归对象图合并栈耗尽」。修复仅能通过 prisma 7（主版本破坏性升级），而 `MASTER_PLAN` 明确要求 **Prisma 6.x 锁定兼容版本**。override 到 8.0.2 后实测 `npx prisma --version` 正常退出码 0，`prisma generate` / `migrate deploy` 均可用。
+
+**最终状态**
+
+```
+npm audit --omit=dev   →  found 0 vulnerabilities
+npm audit（全量，含 dev） → 5 high（全部为 lint 工具链）
+```
+
+**已接受并记录的 5 项 dev-only 告警**
+
+| 依赖 | 严重度 | 可用修复 |
+|---|---|---|
+| `@next/eslint-plugin-next` | high | 仅 Next 16 可修（与既定基线冲突） |
+| `eslint-config-next` | high | 同上 |
+| `braces` | high | `range: *` — 上游**尚无修复版本** |
+| `fast-glob` | high | `range: *` — 上游尚无修复版本 |
+| `micromatch` | high | `range: *` — 上游尚无修复版本 |
+
+**风险接受理由**
+- 全部为 `devDependencies`，**不进入发布产物**，不随 `output: 'standalone'` 打包到服务器。
+- 仅在开发者/CI 机器上运行，输入是本仓库自有源码文件，不存在攻击者可控输入面。
+- `braces` / `fast-glob` / `micromatch` 的公告 `range` 为 `*`，即**上游没有修复版本**，override 只会伪造修复状态，因此不做覆盖。
+- `eslint@9.39.5` 亦被 npm 标记 deprecated，但 `eslint-config-next@15.5.28` 的 peer 范围是 `^7.23 || ^8 || ^9`，升级到 eslint 10 会破坏该约束；lint 属开发期工具，不随产品发布。
+
+**复核方式**
+```bash
+npm audit --omit=dev --registry=https://registry.npmjs.org   # 期望 0
+npm audit --registry=https://registry.npmjs.org               # 5 high，均为上表 lint 工具链
+```
+
+**后续条件**
+一旦 `MASTER_PLAN` 的 Next 15.5 / Prisma 6 基线被正式解除（例如升级到已审计的 Next 16 / Prisma 7），应重跑审计并把本条 ADR 关闭。

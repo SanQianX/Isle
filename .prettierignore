@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+coverage/
+playwright-report/
+test-results/
+package-lock.json
+prisma/migrations/
+docs/plans/
+e2e/__screenshots__/
+tests/fixtures/*.jpg
+tests/fixtures/*.png
+tests/fixtures/*.webp
+*.md

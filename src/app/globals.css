@@ -1,0 +1,152 @@
+@import 'tailwindcss';
+
+/*
+ * ISLE design tokens — transcribed from the V4.1 reference prototype
+ * (`docs/plans/ISLE_V1_Production_PlanPack/00-reference/V4.1_REFERENCE_ONLY.html`)
+ * and from FRONTEND_UX §1. The site stays quiet so the photographs carry the
+ * page: hairline rules, generous whitespace, and green used only for actions.
+ *
+ * `data-tone="mist"` is the cool-grey alternate background. It is a pure colour
+ * substitution — it never filters or desaturates a photograph.
+ */
+@theme {
+  --color-bg: var(--bg);
+  --color-hero: var(--hero);
+  --color-hero-matte: var(--hero-matte);
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink2);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-soft-line: var(--soft-line);
+  --color-accent: var(--accent);
+  --color-accent-hi: var(--accent-hi);
+  --color-chip: var(--chip);
+  --color-lightbox: var(--lb);
+
+  --breakpoint-desktop: 1100px;
+  --breakpoint-tablet: 760px;
+  --breakpoint-narrow: 395px;
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial,
+    sans-serif;
+}
+
+:root {
+  --bg: #f8f9f6;
+  --hero: #eaf0eb;
+  --hero-matte: #dce6df;
+  --paper: #ffffff;
+  --surface: #f0f3ef;
+  --ink: #1b2927;
+  --ink2: #344a45;
+  --muted: #71817a;
+  --line: #d9e1db;
+  --soft-line: #e4e9e4;
+  --accent: #31594d;
+  --accent-hi: #224a3f;
+  --chip: #eff3ee;
+  --lb: #090d0d;
+
+  /* Fixed metrics shared by JS layout and CSS, so the two never disagree. */
+  --gallery-gap: 22px;
+  --page-max: 1420px;
+}
+
+[data-tone='mist'] {
+  --bg: #f1f4f3;
+  --hero: #e2eae9;
+  --hero-matte: #d0dedb;
+  --paper: #f9fbfa;
+  --surface: #e8eeeb;
+  --ink: #1d3030;
+  --ink2: #3a5453;
+  --muted: #708484;
+  --line: #ccd9d5;
+  --soft-line: #dbe4e1;
+  --accent: #376760;
+  --accent-hi: #27534e;
+  --chip: #e7efeb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+body.is-scroll-locked {
+  overflow: hidden;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid #5c9d86;
+  outline-offset: 3px;
+}
+
+::selection {
+  background: #bfd5c8;
+  color: #19332c;
+}
+
+.count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Photographs are never cropped, stretched, or overlaid with body copy. */
+.photo-frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.photo-frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
