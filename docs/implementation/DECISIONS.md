@@ -292,3 +292,54 @@ npm audit --registry=https://registry.npmjs.org               # 5 high，均为�
 
 **后续条件**
 一旦 `MASTER_PLAN` 的 Next 15.5 / Prisma 6 基线被正式解除（例如升级到已审计的 Next 16 / Prisma 7），应重跑审计并把本条 ADR 关闭。
+
+---
+
+## ADR-014 — SQLite 连接池固定为 1，并显式设置三个 PRAGMA
+
+**状态**：accepted
+
+**背景**
+`DATA_API_STORAGE` §1 要求 SQLite 开启 WAL、`busy_timeout ≥ 5000`、`foreign_keys=ON`。其中 WAL 是**持久**属性（存在数据库文件里），但 `busy_timeout` 与 `foreign_keys` 是**逐连接**属性，而 Prisma 没有暴露「每连接执行 PRAGMA」的钩子。
+
+**决策**
+- 连接串强制追加 `connection_limit=1`。
+- 进程内只创建一次 `PrismaClient`（挂在 `globalThis`），启动时执行一次四个 PRAGMA 并等待完成。
+- 实测结果：`journal_mode=wal`、`busy_timeout=5000`、`foreign_keys=1`。
+
+**理由**
+单连接让逐连接 PRAGMA 确定性地作用于唯一的连接；写入天然串行，杜绝 SQLite 最常见的「两个连接都以为自己是写者」问题。目标用户规模 5–15 人，单连接不是吞吐瓶颈。
+
+**验证方式**
+集成测试**不只读标志**，而是实际插入一条孤儿 `Photo` 并断言数据库拒绝（`Foreign key constraint violated`），证明 FK 真的在生效；另删除 Place 断言 Photo 级联消失而 Visitor 保留。
+
+**影响**
+多实例部署时该假设失效。已在 `DEPLOY_RUNBOOK` 记录「v1 单机单进程」，ADR-009 的内存限流同样依赖此前提。
+
+---
+
+## ADR-015 — `Photo.originalKey` 去掉 `@unique`，改为普通索引（**偏离 Plan Pack 示例 schema**）
+
+**状态**：accepted（有意偏离，已记录）
+
+**背景**
+`DATA_API_STORAGE` §1 的示例 schema 写的是 `originalKey String @unique`。实施中本项目采用了**内容寻址**（content-addressed）存储：key 由文件自身的 SHA-256 派生，形如 `original/ab/<sha256>.jpg`。
+
+两者组合会产生真实缺陷：**两位访客上传完全相同的照片时，第二位会失败**。集成测试实测暴露了这一点——同一 fixture 在同一测试文件内被上传两次时，第二次因 `originalKey` 唯一约束而报错。同理，同一张照片用两个不同的 `idempotencyKey` 重传也会失败。
+
+**决策**
+- `originalKey` 改为普通 `String` + `@@index([originalKey])`，不再唯一。
+- 迁移 `20261018182353_content_addressed_original_keys`：删除唯一索引、建立普通索引。
+- `DiskStorage.putOriginal` 在目标 key 已存在时，**先重新计算既有文件的 SHA-256**，与新内容比对：
+  - 相同 → 复用既有 blob，返回成功（不重复写盘、不重复占空间）；
+  - 不同 → 抛错拒绝，并明确报「refusing to overwrite」。伪造 key 也无法覆盖任何已归档原件。
+
+**理由**
+- 内容寻址下「key 唯一」是**恒等式**，不提供任何额外保证，却引入真实故障。
+- 示例 schema 假定 key 是每张照片一个随机 ID；那是**语义等价**要求（原件不可变、key 不更新），唯一索引并非语义本身。`DATA_API_STORAGE` §1 原文即允许「保持等价语义」而非逐字照抄。
+- 复用而非报错更符合产品预期：两位朋友传同一张照片应当都成功。
+
+**影响与已处理的连带风险**
+- 一张原始文件可能被多条 Photo 行引用。这是安全的，因为原件**永久归档、正常业务永不删除**（`DATA_API_STORAGE` §5）。
+- 因此删除路径必须改为**引用检查**：运维 CLI 下架/删除照片前必须先确认没有其他 Photo 引用同一 key，否则会连带删掉别人在用的原件。该检查在 Phase 11 的 `reconcile-storage` / `moderate-photo` 中实现并测试。
+- `originalSha256` 列保持不变，且它才是灯箱 ETag 与备份校验的依据，不依赖 key 唯一性。

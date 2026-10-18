@@ -118,7 +118,46 @@ npm run test:e2e                                   # → 65 passed (chromium/fir
 
 ## Phase 03 — 原图上传、派生缩略图与磁盘存储
 
-**状态**：PENDING
+**状态**：PASSED
+**改动**：新增 `src/server/storage/{Storage,DiskStorage}.ts`、`src/server/image/{validate,metadata,multipart}.ts`、`src/server/services/photo.ts`、`src/server/http/media.ts`、`src/server/ranking.ts`、`src/app/api/places/[placeId]/photos/route.ts`（GET 榜单 + POST 上传）、`src/app/api/photos/[photoId]/{original,download,preview/[size]}/route.ts`、`scripts/generate-test-fixtures.mjs`、`scripts/seed-e2e.ts`（真实照片种子）、`tests/fixtures/*` + `MANIFEST.json`、`tests/unit/image-validate.test.ts`、`tests/integration/photo-ingest.test.ts`、`e2e/upload/photo-upload.spec.ts`、迁移 `20261018182353_content_addressed_original_keys`
+**执行过的命令**：
+```bash
+npx prisma migrate dev --name content_addressed_original_keys   # → DROP 唯一索引 + 建普通索引
+node scripts/generate-test-fixtures.mjs    # → 12 个 fixture + MANIFEST.json
+npx vitest run tests/unit                  # → 72 passed (4 files)
+npx vitest run tests/integration           # → 46 passed (3 files)
+npx eslint . ; npx tsc --noEmit ; npx prettier --check   # → 全部 OK
+npm run build                             # → exit 0（10 条路由）
+npm run test:e2e                          # → 115 passed (5 浏览器项目)
+```
+**测试**：单元 **72 通过 / 0 失败**；集成 **46 通过 / 0 失败**；E2E **115 通过 / 0 失败 / 0 跳过**（23 用例 × 5 浏览器）。报告：`playwright-report/index.html`
+**实际可验证的功能（核心不变量）**：
+- **原件字节一致性（DATA_API_STORAGE §6.1）**：上传 JPEG 后，三处 SHA-256 全等——`SHA256(请求体) == DB.originalSha256 == 磁盘文件`；且 `disk.equals(input) === true`、`Content-Length == input.byteLength`。E2E 层面再验一次：真实 multipart 上传 → 下载 `/original` → 与 fixture 逐字节相等。PNG 原件保持 PNG（断言非 `RIFF` 且 PNG magic 完整），**绝不偷偷转 WebP**。
+- **原件保留 EXIF/GPS，派生图剥离**：`gps-exif.jpg` 原件 `metadata.exif !== undefined`，400/1200 两张预览 `format === 'webp'` 且 `exif === undefined`。
+- **缩略图不裁切、不放大**：landscape 1600×900 → 400×225 / 1200×675；portrait 900×1600 → 225×400 / 675×1200；extreme-wide 2400×480 → 400×80 / 1200×240，比例误差 <0.1。`small.jpeg` 80×80 **不被放大**到 400/1200。
+- **EXIF Orientation=6**：`exif-rotate.jpg` 传感器尺寸 1200×1600，落库 `width=1600, height=1200`（展示方向）。
+- **拒绝路径且不留痕**：伪装 txt→415、截断 JPEG→拒绝、SVG→415、声明类型与真实字节不符→415；每条都断言该访客 Photo 行数为 0。
+- **失败回滚**：让 `Photo.placeId` 外键在**原件与两张预览都写完之后**失败，断言三处 key 全部不存在、上传临时目录为空、DB 无记录。
+- **幂等**：相同 `idempotencyKey` 重放返回 200 + `reused:true` + 同一 photo id，且该内容的磁盘原件**只有一份**（inode 不变）。
+- **Range/下载**：`Range: bytes=a-b` → 206 + `Content-Range` + `Accept-Ranges`；`download` 返回 `attachment` 且文件名经 `safeFilename` 处理、不含 `..`。
+- **fixture 自校验**：E2E 断言 `tests/fixtures/*` 与 `MANIFEST.json` 的 sha256/字节数完全一致，防止有人重新生成 fixture 让视觉基线悄悄漂移。
+
+**风险/问题（已修复）**：
+- **schema 真实缺陷**：内容寻址 key 与 `originalKey @unique` 组合，会让「两位访客传同一张照片」失败。已去掉唯一约束并加内容比对复用/拒绝逻辑，新增迁移。见 **ADR-015**（含删除路径必须做引用检查的连带要求）。
+- **`putDerivative` 永不可覆盖**：原先也走 `link()`，EEXIST 导致第二次上传直接失败；派生图本就可重建，改为 `rename` 原子替换。`writeDurable` 改为 `immutable | replace` 判别联合。
+- **回滚测试前提错误**：原先用过长 description 触发失败，但校验发生在写盘之前，等于没测到回滚；改为用外键失败点真正落在写盘之后。
+- **EXIF 拼接静默失败**：生成器曾从尚未写入的路径读取并用 `.catch()` 吞掉错误，导致 `exif-rotate.jpg`/`gps-exif.jpg` 实际不含 EXIF。改为在内存 buffer 上拼接，并删除吞异常的 catch；重生成后实测 `orientation=6 / exif=true`。
+- **清单迭代错误**：`MANIFEST.json` 的 `generatedBy` 元数据键被当成 fixture 条目读取。
+- 前端页面（上传页/榜单页）按计划在 Phase 06/09；本阶段 E2E 通过真实 multipart 请求驱动同一上传 API，并在第二个 browserContext 中验证跨访客可见。
+
 **下一 Phase**：04
+
+---
+
+## Phase 04 — 照片查询、榜单与原图访问 API
+
+**状态**：IN_PROGRESS（本阶段已顺带实现 `src/server/ranking.ts` 与榜单 GET 路由骨架，作为 Phase 03 的字节一致性证据链；剩余为纯函数单测、分页与榜单专项用例）
+**下一 Phase**：05
+
 
 

@@ -67,9 +67,12 @@ model Photo {
   title       String
   description String @default("")
 
-  /// Storage keys are opaque server-generated identifiers. The user-supplied
-  /// filename is never used to build a path.
-  originalKey    String  @unique
+  /// Storage key for the immutable original. Content-addressed: the key *is* the
+  /// SHA-256 of the bytes, so two uploads of an identical photo share one file
+  /// on disk. That makes the key deliberately NOT unique across rows — see
+  /// ADR-015 for why, and why uniqueness here would be a bug rather than a
+  /// safeguard. The user-supplied filename never becomes a path.
+  originalKey    String
   preview400Key  String?
   preview1200Key String?
 
@@ -99,6 +102,7 @@ model Photo {
 
   @@index([placeId, status, createdAt])
   @@index([visitorId, createdAt])
+  @@index([originalKey])
   @@unique([visitorId, uploadIdempotencyKey])
 }
 

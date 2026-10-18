@@ -1,0 +1,101 @@
+{
+  "generatedBy": "scripts/generate-test-fixtures.mjs",
+  "fixtures": {
+    "landscape.jpg": {
+      "bytes": 17985,
+      "sha256": "c39c16ed4bf6306fea4359ae4efc9eb7f6f5eab7d2cead85770b330634dd8290",
+      "width": 1600,
+      "height": 900,
+      "format": "jpeg",
+      "orientation": 1,
+      "hasExif": false
+    },
+    "landscape-2.jpg": {
+      "bytes": 17759,
+      "sha256": "202c5bc097f3d6a35294146acdabbc532f6367c1cbddcf39ec9b81c0e1fc9b3d",
+      "width": 1400,
+      "height": 1050,
+      "format": "jpeg",
+      "orientation": 1,
+      "hasExif": false
+    },
+    "portrait.jpg": {
+      "bytes": 15775,
+      "sha256": "8ec330b3a5c52dc54186032a4f7a72dd3e1c69e1466f7b7456382cf96e3835ed",
+      "width": 900,
+      "height": 1600,
+      "format": "jpeg",
+      "orientation": 1,
+      "hasExif": false
+    },
+    "square.png": {
+      "bytes": 8880,
+      "sha256": "413ed4562f0dca3251fbf7f93b43c2656962a0c547e37d6fae3fc848863b5167",
+      "width": 1000,
+      "height": 1000,
+      "format": "png",
+      "orientation": 1,
+      "hasExif": false
+    },
+    "extreme-wide.webp": {
+      "bytes": 5036,
+      "sha256": "62fcec3bd353e4c6c3fc609548a5cadbd41fde688ce87424c0c25179b20bda28",
+      "width": 2400,
+      "height": 480,
+      "format": "webp",
+      "orientation": 1,
+      "hasExif": false
+    },
+    "extreme-tall.jpg": {
+      "bytes": 10375,
+      "sha256": "d2fe79189073d6c46b22e89614cdef43a2df14e1b8faff1e10aa6eebcc1467e6",
+      "width": 480,
+      "height": 2400,
+      "format": "jpeg",
+      "orientation": 1,
+      "hasExif": false
+    },
+    "small.jpeg": {
+      "bytes": 852,
+      "sha256": "361102331d0f514847968c9621a6c3741e0d7d4d2e221f6804b0ace3416985ff",
+      "width": 80,
+      "height": 80,
+      "format": "jpeg",
+      "orientation": 1,
+      "hasExif": false
+    },
+    "exif-rotate.jpg": {
+      "bytes": 19262,
+      "sha256": "4e7408b1879a6eed6ec0422d5199f905b197e9d54322b57460aaf24dbba197fe",
+      "width": 1200,
+      "height": 1600,
+      "format": "jpeg",
+      "orientation": 6,
+      "hasExif": true
+    },
+    "gps-exif.jpg": {
+      "bytes": 11729,
+      "sha256": "39983180929ed99ec8f7758238a8067c18dca5af0ea799d5a17c849a9d0dc128",
+      "width": 1100,
+      "height": 825,
+      "format": "jpeg",
+      "orientation": 1,
+      "hasExif": true
+    },
+    "invalid-text.jpg": {
+      "bytes": 33,
+      "sha256": "84ce73be08d8d371d7cbf029e2d48efc37f43c704c868f3a86af505364a7aed6",
+      "note": "plain text with an image extension"
+    },
+    "corrupt.jpg": {
+      "bytes": 7194,
+      "sha256": "3cc7262976fa2bf5f0827a2038cffe37bb963c9a11a12ce77e4968605faf63d0",
+      "note": "truncated JPEG: valid header, undecodable body"
+    },
+    "script.svg": {
+      "bytes": 96,
+      "sha256": "b2f09cd3b8ab8aff19776f936c026ac2734a2f5331e7ef55bf09cbbf6f8d10ee",
+      "note": "SVG with an inline script; must be rejected"
+    }
+  }
+}
