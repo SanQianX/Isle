@@ -156,8 +156,40 @@ npm run test:e2e                          # → 115 passed (5 浏览器项目)
 
 ## Phase 04 — 照片查询、榜单与原图访问 API
 
-**状态**：IN_PROGRESS（本阶段已顺带实现 `src/server/ranking.ts` 与榜单 GET 路由骨架，作为 Phase 03 的字节一致性证据链；剩余为纯函数单测、分页与榜单专项用例）
+**状态**：PASSED
+**改动**：新增 `src/server/ranking.ts`（纯函数比较器 + 游标）、`src/server/http/media.ts`（原件/下载/预览统一直流）、`src/app/api/places/[placeId]/photos/route.ts` 的 GET 榜单、`src/app/api/photos/[photoId]/{original,download,preview/[size]}/route.ts`、`tests/unit/{ranking,media-range}.test.ts`、`e2e/ranking/leaderboard.spec.ts`
+**执行过的命令**：
+```bash
+npx vitest run tests/unit           # → 109 passed (6 files)
+npx vitest run tests/integration    # → 46 passed (3 files)
+npx eslint . ; npx tsc --noEmit     # → OK
+npm run build                      # → exit 0
+npm run test:e2e                   # → 175 passed，连跑 3 次全绿（稳定性验证）
+```
+**测试**：单元 **109 通过 / 0 失败**；集成 **46 通过 / 0 失败**；E2E **175 通过 / 0 失败 / 0 跳过**（35 用例 × 5 浏览器），**连续 3 次全量运行结果一致**。
+**实际可验证的功能**：
+- **排序比较器（DATA_API_STORAGE §2.1）**：单元测试逐条钉死四级排序键——`score DESC` → `upCount DESC`（5-0 与 6-1 同分时 6-1 在前）→ `createdAt ASC`（越早上传越前）→ `id ASC`（完全确定，页面不抖动）。额外验证：比较器对称、正反输入顺序结果一致、不修改入数组、负分正常。
+- **榜单 API**：种子数据下逐对断言相邻项满足排序规则；`rank` 为 1 起连续且等于列表位置；`score === upCount - downCount` 对每一项成立。
+- **分页**：cursor keyset 分页连跑多页，断言**无重复**、**rank 连续无跳号**、游标必定终止。
+- **原图 Range**：`bytes=0-99` → 206 + `Content-Range: bytes 0-99/N` + 恰好 100 字节且与完整响应前 100 字节相等；`bytes=-50` → 末尾 50 字节；`Accept-Ranges: bytes`。
+- **条件请求**：ETag 由 `originalSha256` 派生，`If-None-Match` 命中返回 **304**。
+- **响应头安全**：原件与预览均带 `X-Content-Type-Options: nosniff`；预览 `Cache-Control` 含 `immutable`，带票态的榜单为 `private, no-store`。
+- **非法输入**：未知 photoId 在四条媒体路由均 404；`preview/800`、`preview/2048`、`preview/0`、`preview/abc` 一律 404（**不做按需缩放**，避免把可缓存 URL 变成每次请求重编码）。
+- **下载一致性**：下载种子照片 `从云端经过桂山岛`，字节与 `landscape.jpg` fixture 逐字节相等。
+- **Range 解析纯函数**：拒绝多段 range（`bytes=0-99,200-299`）、非 bytes 单位、反向区间、空值、越界、畸形值；仅接受合法单段。
+
+**风险/问题（已修复）**：
+- **E2E 竞态**：分页用例原先把整趟游标结果与**另一次时刻**的全量列表做相等比较，而 5 个浏览器项目会并发向同一地点上传照片，榜单在两次读取之间合法变化 → 偶发失败（首次全量跑失败一次，复跑 175 全绿）。已改为断言**与并发写入无关的不变量**：页间无重复、rank 连续、游标终止。连续 3 次全量运行结果一致。
+- 不返回任何磁盘路径：E2E 断言榜单 JSON 与 404 响应均不含 `media/original` 或 `/var/lib/isle`。
 **下一 Phase**：05
+
+---
+
+## Phase 05 — 投票服务、事务和防重复
+
+**状态**：PENDING
+**下一 Phase**：06
+
 
 
 
