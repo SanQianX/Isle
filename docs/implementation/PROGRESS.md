@@ -358,3 +358,28 @@ npm audit --omit=dev               # → found 0 vulnerabilities
 - 视觉基线在本地生成于 **Windows**，权威基线仍需 **Linux CI** 生成（ADR-007）。本地基线目录 `e2e/__screenshots__/local/` 已 gitignore，不进仓库。
 - Lighthouse 性能基线与断网/磁盘满故障注入未实机执行，登记为 Phase 11/12 的 staging 项。
 **下一 Phase**：11
+
+---
+
+## Phase 12 — 全量发行验收、文档与交接
+
+**状态**：PASSED（发布状态 `READY_NOT_DEPLOYED`）
+**改动**：新增 `docs/implementation/ACCEPTANCE_CHECKLIST.md`（逐条实测）、`docs/implementation/DELIVERY_REPORT.md`
+**最终实测结果**：
+```bash
+npx vitest run tests/unit          # → 144 passed / 0 failed（8 files）
+npx vitest run tests/integration   # →  68 passed / 0 failed（4 files）
+npm run test:e2e                   # → 478 passed / 0 failed，连跑 3 次一致
+npm run test:visual                # →  55 passed / 0 failed
+npx eslint .                       # → exit 0
+npx tsc --noEmit                   # → exit 0
+npx prettier --check               # → 全部通过
+npm run build                      # → exit 0
+npm audit --omit=dev               # → found 0 vulnerabilities
+```
+**验收结论**：
+- **P0 阻断项：0**；**P1 未解决项：0**
+- 已验证：功能全部落地、原件字节一致性、匿名一图一票、摄影墙不裁切不重排、无障碍 critical/serious = 0
+- **未执行**（无服务器/域名/证书，已如实标注）：CI 实跑、Linux staging、nginx/systemd/TLS 实机、`check:all` 的 Linux ABI 验证、Linux 视觉基线审定、Lighthouse 与磁盘满故障注入
+- **最终状态：`READY_NOT_DEPLOYED`**，不是「已上线」
+**下一 Phase**：无。剩余全部为人工操作，见交付报告 §8。
