@@ -162,9 +162,12 @@ header.site-header{position:relative;z-index:3;background:var(--hero);border-bot
 .brand{
   position:relative;
 }
-.nav a::after,
-.breadcrumb a::after,
-.brand::after{
+/* ::before, not ::after: the V4.1 stylesheet already uses ::after on the
+   active navigation link to draw its underline, and the two rules fought over
+   the same pseudo-element -- which moved the underline out of the header. */
+.nav a::before,
+.breadcrumb a::before,
+.brand::before{
   content:"";
   position:absolute;
   left:0;
