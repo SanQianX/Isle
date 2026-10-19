@@ -42,6 +42,18 @@ const config = [
     },
   },
   {
+    // Photographs are rendered with a plain <img>, not next/image.
+    // next/image re-encodes through its optimizer, which would mean the bytes a
+    // visitor sees are not the bytes that were uploaded -- the one thing this
+    // project must never do (DATA_API_STORAGE §3). We do our own derivation at
+    // upload time and serve those files unchanged, and we reserve layout space
+    // with explicit width/height so there is no CLS.
+    files: ['src/app/**/*.tsx', 'src/components/**/*.tsx'],
+    rules: {
+      '@next/next/no-img-element': 'off',
+    },
+  },
+  {
     // Test and script files legitimately use Node globals and looser casts.
     files: [
       'tests/**/*.{ts,tsx}',

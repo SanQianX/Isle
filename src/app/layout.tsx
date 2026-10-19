@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import './isle.css';
 
 export const metadata: Metadata = {
   title: 'ISLE 屿集 — 每一处风景，都值得被看见',
