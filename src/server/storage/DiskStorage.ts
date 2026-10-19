@@ -43,6 +43,29 @@ export type StorageRoots = {
   uploadTmpDir: string;
 };
 
+/**
+ * Rename with a short retry for transient sharing violations.
+ *
+ * Windows refuses to replace a file that another process currently has open,
+ * which a browser streaming that file certainly does. EBUSY/EPERM/ENOTEMPTY
+ * are therefore expected rather than exceptional here.
+ */
+async function renameWithRetry(from: string, to: string, attempts = 5): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      await fs.promises.rename(from, to);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES') throw error;
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
+
 export class DiskStorage implements Storage {
   private readonly originalDir: string;
   private readonly previewRoot: string;
@@ -139,7 +162,12 @@ export class DiskStorage implements Storage {
       if (options.mode === 'replace') {
         // Derivatives are rebuildable from the original, so replacing one is
         // correct. rename is atomic within a filesystem and overwrites.
-        await fs.promises.rename(temporary, target);
+        //
+        // On Windows a rename onto a file another process has open fails with
+        // EPERM/EBUSY, which happens routinely when a browser is streaming that
+        // very preview. A short retry clears it; the write is idempotent so
+        // retrying is safe.
+        await renameWithRetry(temporary, target);
         await fs.promises.rm(temporary, { force: true }).catch(() => undefined);
         return 'written';
       }
@@ -228,6 +256,15 @@ export class DiskStorage implements Storage {
 
   async putDerivative(key: string, bytes: Uint8Array): Promise<void> {
     const target = this.resolve(key);
+    // Derivative keys are content-addressed, so a key that already exists holds
+    // exactly these bytes. Skipping the rewrite is not just an optimisation: on
+    // Windows a rename over a file the browser is downloading fails with EPERM,
+    // and a preview is re-derived every time its source is re-uploaded.
+    const existingBytes = await fs.promises.stat(target).catch(() => undefined);
+    if (existingBytes !== undefined && existingBytes.size === bytes.byteLength) {
+      return;
+    }
+
     await this.writeDurable(
       target,
       async (handle) => {

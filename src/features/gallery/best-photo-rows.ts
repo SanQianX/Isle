@@ -167,7 +167,7 @@ export function bestPhotoRows(
       tiles.push({
         id: photo.id,
         // Width follows from the photo's own ratio, so nothing is distorted.
-        widthPx: (photoRatio(photo) * height),
+        widthPx: photoRatio(photo) * height,
         heightPx: height,
         index: index + j,
       });

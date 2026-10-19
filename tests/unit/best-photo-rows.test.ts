@@ -24,13 +24,16 @@ function flatten(rows: ReturnType<typeof bestPhotoRows>): string[] {
 }
 
 /** Build n photos cycling through a set of aspect ratios. */
-function manyPhotos(count: number, ratios: Array<[number, number]> = [
-  [1600, 900],
-  [900, 1600],
-  [1000, 1000],
-  [2400, 480],
-  [480, 2400],
-]): LayoutInput[] {
+function manyPhotos(
+  count: number,
+  ratios: Array<[number, number]> = [
+    [1600, 900],
+    [900, 1600],
+    [1000, 1000],
+    [2400, 480],
+    [480, 2400],
+  ],
+): LayoutInput[] {
   return Array.from({ length: count }, (_, index) => {
     const [width, height] = ratios[index % ratios.length] as [number, number];
     return { id: `p${index}`, width, height };
@@ -97,7 +100,7 @@ describe('bestPhotoRows geometry invariants', () => {
     }
   });
 
-  it('keeps each tile at the photo\'s true aspect ratio, so nothing is stretched', () => {
+  it("keeps each tile at the photo's true aspect ratio, so nothing is stretched", () => {
     const input = manyPhotos(14);
     const byId = new Map(input.map((photo) => [photo.id, photo]));
     for (const tile of bestPhotoRows(input, containerWidth).flatMap((row) => row.tiles)) {
@@ -200,11 +203,7 @@ describe('bestPhotoRows robustness', () => {
 
 describe('single column layout', () => {
   it('gives every photo the full width at its own ratio', () => {
-    const input = photos(
-      ['land', 1600, 900],
-      ['port', 900, 1600],
-      ['sq', 1000, 1000],
-    );
+    const input = photos(['land', 1600, 900], ['port', 900, 1600], ['sq', 1000, 1000]);
     const rows = singleColumnRows(input, 360);
 
     expect(rows).toHaveLength(3);

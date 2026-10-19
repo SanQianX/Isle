@@ -71,3 +71,44 @@ header.site-header{position:relative;z-index:3;background:var(--hero);border-bot
  .photo-row .caption-title{font-size:14px}
  .photo-row .small-vote{margin-left:auto}
 }
+
+/* Visually hidden but announced by screen readers: live vote feedback, and
+   labels that would otherwise clutter the photograph. */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+/* --- Upload and form additions -------------------------------------------
+   The V4.1 prototype had a single dropzone with no per-file state, so these
+   rules are new. They follow the same language: hairlines, no cards, no
+   shadows, and every message the user needs to see. */
+.previews-list{list-style:none;margin:16px 0;padding:0;display:flex;flex-direction:column;gap:10px}
+.upload-row{display:flex;gap:14px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--soft-line)}
+.previews-list .preview-image{flex:0 0 88px;height:66px;background:var(--surface)}
+.upload-row-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.upload-row-info .text-input{padding:9px 11px;font-size:12px}
+.upload-row-meta{display:flex;gap:10px;align-items:center;font-size:11px;color:var(--muted)}
+.upload-status-uploading{color:var(--accent)}
+.upload-status-success{color:var(--accent)}
+.upload-status-failed{color:#a4452f}
+.upload-error{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:11px;color:#a4452f;line-height:1.7}
+.upload-error .btn-quiet{font-size:11px;padding:0;color:#a4452f;text-decoration:underline;text-underline-offset:3px}
+.upload-summary{margin:16px 0;padding:13px 15px;background:var(--chip);color:var(--accent);font-size:12px}
+.field-error{margin:6px 0 0;font-size:11px;color:#a4452f;line-height:1.7}
+.form-alert{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:14px 0;padding:13px 15px;background:#f7ece8;color:#8d3722;font-size:12px;line-height:1.8}
+.form-alert .btn-quiet{font-size:11px;color:#8d3722;padding:0;text-decoration:underline;text-underline-offset:3px}
+.char-count{text-align:right;font-size:10px;color:var(--muted);margin-top:6px}
+.consent{display:flex;gap:11px;align-items:flex-start;margin:22px 0 6px;font-size:11px;line-height:1.9;color:var(--muted);cursor:pointer}
+.consent input{width:16px;height:16px;margin:2px 0 0;flex:0 0 auto;accent-color:var(--accent)}
+.consent strong{color:var(--ink2);font-weight:600}
+
+.back-link{margin-top:28px}
+
+/* --- Overflow containment --------------------------------------------------
+   Grid and flex children default to `min-width: auto`, which means they refuse
+   to shrink below their content. A photograph carries intrinsic width and
+   height attributes, so a tile inside a grid would refuse to narrow and push a
+   horizontal scrollbar onto a phone — intermittently, depending on whether the
+   stylesheet had applied when the measurement was taken. `min-width: 0` lets
+   the item actually shrink, and `max-width: 100%` keeps the image inside it. */
+.place-feature>*,.rank-feature>*,.photo-row>*,.form-layout>*{min-width:0}
+.feature-image img,.photo-media img,.hero-photo-frame img{max-width:100%}
+.photo-grid,.place-feature,.rank-feature,.form-layout{overflow-x:clip}

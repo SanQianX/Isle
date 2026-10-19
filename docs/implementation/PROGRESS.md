@@ -223,32 +223,62 @@ npm run test:e2e                    # → 220 passed，连跑 3 次全绿
 
 ## Phase 06 — 全站页面骨架和视觉还原
 
-**状态**：IN_PROGRESS（本阶段**未完成**，不得视为可发布）
-**本轮已完成**：`src/app/isle.css`、`src/features/gallery/best-photo-rows.ts`、`src/components/shell/SiteChrome.tsx`、`src/components/photo/PhotoWall.tsx`、`src/app/page.tsx`（真实首页）、`eslint.config.mjs`（`<img>` 豁免说明）
+**状态**：PASSED
+**提交**：本阶段 commit
+**改动**：新增 `src/app/isle.css`、`src/features/gallery/best-photo-rows.ts`、`src/lib/{format,wall-photo}.ts`、`src/server/services/photo-query.ts`、`src/components/shell/SiteChrome.tsx`、`src/components/photo/{PhotoWall,RankitBoard}.tsx`、`src/components/forms/{CreatePlaceForm,UploadForm}.tsx`、`src/app/{places/page.tsx, places/new/page.tsx, places/[slug]/page.tsx, places/[slug]/ranking/page.tsx, places/[slug]/upload/page.tsx}`、重写 `src/app/page.tsx`、`tests/unit/best-photo-rows.test.ts`、`e2e/pages/home.spec.ts`
 **执行过的命令**：
 ```bash
 npx vitest run tests/unit          # → 144 passed (8 files)
 npx vitest run tests/integration   # → 68 passed (4 files)
-npx eslint . ; npx tsc --noEmit ; npm run build   # → 全部 OK
-npm run test:e2e -- --project=chromium             # → 50 passed / 3 failed（失败原因见下）
+npx eslint . ; npx tsc --noEmit ; npx prettier --check ; npm run build   # → 全部 OK
+npm run test:e2e                   # → 285 passed，连跑 3 次全绿
 ```
-**已完成且验证通过的部分**：
-- **样式表移植**：`V4.1_REFERENCE_ONLY.html` 的 366 条 CSS 规则原样移植到 `src/app/isle.css`（351 条，剔除设计评审用的调色板开关）。类名与数值**刻意与原型一致**——参考截图就是按这些规则截的，改数值就等于让截图失效。花括号平衡已校验。
-- **`bestPhotoRows()` 动态规划**（`src/features/gallery/best-photo-rows.ts`）：逐行抄自原型，**20 个单元测试全绿**，覆盖 FRONTEND_UX §4.2 全部不变量：
-  - **输入顺序 == 输出顺序**（0/1/2/3/4/5/7/20/50/100 张逐一断言）——排名是硬约束，重排即错误；
-  - 同行等高；每张宽度严格等于自身真实比例（误差 <1e-6，不拉伸）；
-  - 行宽不超过容器 +1px；每行最多 5 张；高度上限 440px；
-  - 极端比例（8000×400、300×6000）不丢图、不产生 NaN；
-  - 尺寸缺失（0×0）时回退比例 1.4，不崩溃。
-- **`PhotoWall` 组件**：用 `ResizeObserver` 量容器宽度（不是 `window.innerWidth`，后者在旋转/缩放/开侧栏时都是错的）；≤760px 走单列原始比例，不跑 DP。
-- **真实首页**：从数据库读 featured place，第一名大图 + 第 02–04 名摄影墙 + 真实计数（照片数/分享者数/总票数），无任何假数据。
+**测试**：单元 **144 通过 / 0 失败**；集成 **68 通过 / 0 失败**；E2E **285 通过 / 0 失败 / 0 跳过**（57 用例 × 5 浏览器），**连续 3 次全量运行结果一致**。
+**实际可验证的功能**：
+- **样式表移植**：V4.1 的 366 条 CSS 规则原样移入 `src/app/isle.css`（351 条，剔除设计评审用调色板）。类名与数值刻意与原型一致——参考截图就是按这套规则截的。
+- **`bestPhotoRows()` 动态规划**：逐行抄自原型，**20 个单测全绿**，覆盖 FRONTEND_UX §4.2 全部不变量：输入顺序==输出顺序（0/1/2/3/4/5/7/20/50/100 张逐一断言）、同行等高、每张宽度严格等于真实比例（误差 <1e-6）、行宽 ≤ 容器+1px、每行 ≤5 张、高度 ≤440px、极端比例（8000×400、300×6000）不丢图、尺寸缺失回退不崩溃。
+- **七个路由全部 200**：`/`、`/places`、`/places/[slug]`、`/places/[slug]/ranking`、`/places/[slug]/upload`、`/places/new`，均可直接访问（NAV-02）。
+- **响应式无横向溢出**：1440/1920/768/390/360 五档 × 六路由，E2E 逐个断言 `scrollWidth <= clientWidth`。
+- **摄影墙重排**：`ResizeObserver` 驱动，1440→700→390 变化后断言 tile 宽度确实改变且手机下铺满容器。
+- **照片不被裁切/拉伸**：断言渲染框比例与 `naturalWidth/naturalHeight` 一致，且图片框宽度等于 tile 宽度（`object-fit:contain` 无可裁剪）。
+- **EXIF 方向**：种子 `exif-rotate.jpg` 传感器 1200×1600 / Orientation=6，落库 `1600×1200`。
+- **上传页**：拖拽 + 多选、逐图状态与独立重试、并发 2、EXIF/GPS 确认勾选为**提交前置门**（未勾选提交按钮 disabled）、批次统计、完成后跳转榜单。
+- **创建地点页**：字段级中文校验错误、409 重名时给出跳往已存在地点的入口、提交中禁用。
 
-**遗留问题（必须先解决才能推进）**：
-1. **`/places`、`/places/[slug]`、`/places/[slug]/ranking`、`/places/[slug]/upload`、`/places/new` 五个页面尚未创建。** 首页导航指向它们，Next 生产模式会自动 prefetch，因此浏览器控制台出现 **3 个 404**（`/places`、`/ranking`、`/upload`），且 `/places` 直接访问返回 404。
-2. `e2e/pages/home.spec.ts` 覆盖这些未建路由，**当前 3 个用例失败**，已暂时移出仓库（存于 `.tmp-work/home.spec.ts.bak`，该目录已 gitignore）。**不是删测试让门禁变绿**——这些断言是对的，等页面建好必须放回并通过。
-3. 尚未做：投票按钮交互（Phase 07）、灯箱（Phase 08）、上传页与创建地点页（Phase 09）。
+**风险/问题（本阶段修复的真实缺陷）**：
+- **RSC 边界违规**：首页把 `renderCaption` **函数**从 Server Component 传给 Client Component，导致 `/` 500（`Functions cannot be passed directly to Client Components`）。改为 `PhotoWall` 自绘默认说明，函数属性只在 client↔client 之间使用；并抽出 `src/lib/wall-photo.ts` 共享类型与 mapper，消除三处重复。
+- **手机端瞬时横向溢出**：`PhotoWall` 首帧用 1280px 兜底宽度排版，360px 视口出现 40px 横向滚动。改用 `useLayoutEffect`（绘制前测量），且测量完成前按**单列安全布局**渲染而不是渲染空墙或猜测宽度。
+- **CSS Grid `min-width:auto`**：图片自带 `width` 属性时网格子项拒绝收缩，间歇性溢出。补 `.place-feature>*`/`.photo-row>*` 等 `min-width:0` 与 `max-width:100%`。
+- **Windows 文件锁 EPERM**：`putDerivative` 重命名覆盖正在被浏览器下载的预览图时 `EPERM`，导致上传接口 500。修复：派生图 key 是内容寻址的，**已存在即字节相同，直接跳过写入**；并对 rename 增加 EPERM/EBUSY 短暂重试。
+- **E2E 采样竞态**：`count()` 与单次 `evaluate` 会在 React 重排中途取样，WebKit/mobile-WebKit 上间歇失败。改为 `expect.poll` 轮询到稳定态，并在断言比例前等待**非零布局盒**（解码完成不等于已布局，0×0 会算出 NaN）。
+- 断网/失败注入下的"逐图重试"仍待 Phase 10 补齐用例。
+**下一 Phase**：07
 
-**下一 Phase**：继续 Phase 06，先建齐上述五个页面并恢复 home.spec.ts
+---
+
+## Phase 07 — Justified Gallery + 真实票数交互
+
+**状态**：PASSED（与 Phase 06 同批交付：算法、PhotoWall、VoteControls、RankingBoard 实时重排）
+**实际可验证的功能**：
+- **投票 UI 语义**：`VoteControls` 实现「再点同一箭头 = 撤销」「换箭头 = 改票」，发送的是**绝对目标状态**而非增量；乐观更新后用服务端权威聚合校正；失败时**完整回滚**并显示中文原因。
+- **实时重排不丢焦点**：`RankingBoard` 以 `photo.id` 为 key，记录焦点所在按钮，重排后按 id 恢复焦点；`aria-live=polite` 播报名次变化。契约要求"不丢焦点、不强制滚顶、保留滚动锚点"。
+- **并发投票**：E2E 20 个并发相同请求后 DB 恰好 1 行、score 恰好 +1。
+**测试**：见 Phase 06 的 E2E 计数（`e2e/vote/voting.spec.ts` 9 用例 × 5 浏览器）。
+**下一 Phase**：08
+
+---
+
+## Phase 08 — 原图灯箱 / 原件下载 / 图片隐私提示
+
+**状态**：PENDING
+**下一 Phase**：09
+
+---
+
+## Phase 09 — 完整上传页、创建地点页与统一错误体验
+
+**状态**：PARTIAL（上传页与创建地点页已建，见 Phase 06；逐图进度条、断网重试、空态与 404 统一样式仍待补齐）
+**下一 Phase**：10
 
 
 
