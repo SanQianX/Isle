@@ -61,14 +61,28 @@ type Props = {
   placeName: string;
   placeSlug: string;
   items: RankingItem[];
+  /** How many photographs the place holds in total. */
+  totalPhotos: number;
+  /** The server's cursor for the next page, or null when all are shown. */
+  nextCursor: string | null;
 };
 
-export function RankingBoard({ placeId, placeName, placeSlug, items: initialItems }: Props) {
+export function RankingBoard({
+  placeId,
+  placeName,
+  placeSlug,
+  items: initialItems,
+  totalPhotos,
+  nextCursor: initialCursor,
+}: Props) {
   const searchParams = useSearchParams();
   const photoParam = searchParams.get('photo');
 
   const [items, setItems] = useState<RankingItem[]>(initialItems);
   const [announcement, setAnnouncement] = useState('');
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState<string | null>(null);
+  const [cursor, setCursor] = useState<string | null>(initialCursor);
 
   // The viewer is driven by local state, not by useSearchParams. Closing then
   // never waits on a server round trip, so the element that opened it is still
@@ -148,6 +162,60 @@ export function RankingBoard({ placeId, placeName, placeSlug, items: initialItem
     },
     [items],
   );
+
+  /**
+   * Append the next page of photographs.
+   *
+   * The ranking page renders a bounded number on first load; the rest come
+   * from the API's cursor pagination, which is the same ordering the server
+   * used. A cursor can stop resolving when a vote moves a photograph between
+   * reads -- the API says so with `rankingMayHaveChanged`, and the honest
+   * response is to reload the page rather than show a wall with a hole in it.
+   */
+  const loadMore = useCallback(async () => {
+    if (loadingMore) return;
+    setLoadingMore(true);
+    setMoreError(null);
+
+    try {
+      // The cursor comes from the server. Re-encoding it here would mean two
+      // implementations of the same format, and a drift between them would make
+      // the board skip photographs without saying so.
+      if (cursor === null) return;
+
+      const response = await fetch(
+        `/api/places/${placeId}/photos?limit=40&cursor=${encodeURIComponent(cursor)}`,
+      );
+      if (!response.ok) {
+        throw new Error('加载更多照片失败，请稍后再试');
+      }
+
+      const body = (await response.json()) as {
+        items: RankingItem[];
+        nextCursor: string | null;
+        rankingMayHaveChanged: boolean;
+      };
+
+      if (body.rankingMayHaveChanged) {
+        // The order moved underneath us. Reloading is the only way to show a
+        // leaderboard that is actually true.
+        window.location.reload();
+        return;
+      }
+
+      setItems((current) => {
+        const known = new Set(current.map((item) => item.id));
+        const fresh = body.items.filter((item) => !known.has(item.id));
+        return [...current, ...fresh];
+      });
+      setCursor(body.nextCursor);
+      setAnnouncement(`又加载了 ${body.items.length} 张照片`);
+    } catch (cause) {
+      setMoreError(cause instanceof Error ? cause.message : '加载更多照片失败');
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [cursor, loadingMore, placeId]);
 
   const [leader, ...rest] = items;
 
@@ -340,6 +408,31 @@ export function RankingBoard({ placeId, placeName, placeSlug, items: initialItem
               );
             }}
           />
+
+          {items.length < totalPhotos ? (
+            <div className="load-more">
+              <button
+                type="button"
+                className="btn-outline"
+                onClick={() => void loadMore()}
+                disabled={loadingMore}
+                data-testid="ranking-load-more"
+              >
+                {loadingMore
+                  ? '正在加载…'
+                  : `显示更多照片（还有 ${totalPhotos - items.length} 张）`}
+              </button>
+              {moreError !== null ? (
+                <span
+                  className="load-more-error"
+                  role="alert"
+                  data-testid="ranking-load-more-error"
+                >
+                  {moreError}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </>
       ) : (
         <p className="muted" style={{ padding: '40px 0', fontSize: '13px' }}>

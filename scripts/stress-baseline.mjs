@@ -94,7 +94,10 @@ for (let p = 0; p < PLACES; p += 1) {
 const voterIds = [];
 for (let v = 0; v < VOTERS; v += 1) {
   const voter = await prisma.visitor.create({
-    data: { tokenHash: `stress-voter-${v}-${Date.now()}`, displayCode: `sv${String(v).padStart(3, '0')}` },
+    data: {
+      tokenHash: `stress-voter-${v}-${Date.now()}`,
+      displayCode: `sv${String(v).padStart(3, '0')}`,
+    },
   });
   voterIds.push(voter.id);
 }
@@ -197,7 +200,10 @@ await timed('30 个访客并发建地点', async () => {
     fetch(`${ORIGIN}/api/places`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: `并发岛 ${index}-${Date.now()}-${Math.random()}`, region: '测试' }),
+      body: JSON.stringify({
+        name: `并发岛 ${index}-${Date.now()}-${Math.random()}`,
+        region: '测试',
+      }),
     }),
   );
   const responses = await Promise.all(posts);

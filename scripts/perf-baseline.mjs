@@ -35,7 +35,12 @@ async function measure(page, path) {
     const url = response.url();
     if (!url.startsWith(ORIGIN)) return;
     const length = Number(response.headers()['content-length'] ?? 0);
-    requests.push({ url, status: response.status(), length, type: response.request().resourceType() });
+    requests.push({
+      url,
+      status: response.status(),
+      length,
+      type: response.request().resourceType(),
+    });
   });
   page.on('requestfailed', (request) => failures.push(request.url()));
 
@@ -106,7 +111,11 @@ async function installLcpObserver(page) {
         const entries = list.getEntries();
         const last = entries[entries.length - 1];
         if (last !== undefined) {
-          window.__lcp = { startTime: last.startTime, size: last.size, element: last.element?.tagName };
+          window.__lcp = {
+            startTime: last.startTime,
+            size: last.size,
+            element: last.element?.tagName,
+          };
         }
       }).observe({ type: 'largest-contentful-paint', buffered: true });
     } catch {
@@ -169,8 +178,12 @@ for (const row of rows) {
 }
 
 console.log('\n=== 冷启动 + 慢网络（模拟 4G，390x844）===');
-console.log(`  FCP ${ms(slowResult.fcp)}   LCP ${ms(slowResult.lcp)}   CLS ${slowResult.cls.toFixed(4)}`);
-console.log(`  总载荷 ${kb(slowResult.totalBytes)}   资源数 ${slowResult.resources}   失败请求 ${slowResult.failures.length}`);
+console.log(
+  `  FCP ${ms(slowResult.fcp)}   LCP ${ms(slowResult.lcp)}   CLS ${slowResult.cls.toFixed(4)}`,
+);
+console.log(
+  `  总载荷 ${kb(slowResult.totalBytes)}   资源数 ${slowResult.resources}   失败请求 ${slowResult.failures.length}`,
+);
 if (slowResult.failures.length > 0) {
   console.log('  失败:');
   for (const failure of slowResult.failures) console.log(`    ${failure}`);
@@ -183,9 +196,7 @@ const report = {
   pages: rows,
   slowNetwork: slowResult,
 };
-await (await import('node:fs/promises')).writeFile(
-  '.perf-baseline.json',
-  `${JSON.stringify(report, null, 2)}\n`,
-  'utf8',
-);
+await (
+  await import('node:fs/promises')
+).writeFile('.perf-baseline.json', `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 console.log('\n已写入 .perf-baseline.json');

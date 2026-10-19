@@ -120,8 +120,7 @@ export async function GET(): Promise<NextResponse> {
     staticAssets,
   };
 
-  const healthy =
-    database.ok && originalDir.ok && previewRoot.ok && tmpDir.ok && staticAssets.ok;
+  const healthy = database.ok && originalDir.ok && previewRoot.ok && tmpDir.ok && staticAssets.ok;
 
   return NextResponse.json(
     {

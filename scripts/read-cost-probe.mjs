@@ -28,14 +28,19 @@ process.env.ISLE_E2E = '1';
 process.env.NODE_ENV = 'production';
 
 const prismaCli = path.join(repoRoot, 'node_modules', 'prisma', 'build', 'index.js');
-execFileSync(process.execPath, [prismaCli, 'migrate', 'deploy'], { stdio: 'pipe', env: process.env });
+execFileSync(process.execPath, [prismaCli, 'migrate', 'deploy'], {
+  stdio: 'pipe',
+  env: process.env,
+});
 
 const { loadRankedPhotos } = await import('../src/server/services/photo-query.ts');
 const { listPlaces } = await import('../src/server/services/place.ts');
 
 const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
 
-const author = await prisma.visitor.create({ data: { tokenHash: 'r-author', displayCode: 'ra001' } });
+const author = await prisma.visitor.create({
+  data: { tokenHash: 'r-author', displayCode: 'ra001' },
+});
 const voters = [];
 for (let v = 0; v < 20; v += 1) {
   voters.push(
@@ -98,9 +103,7 @@ for (const count of [25, 100, 250, 500]) {
     }
   }
 
-  await time(`${String(count).padEnd(8)}`, async () =>
-    loadRankedPhotos(big.id, author.id),
-  );
+  await time(`${String(count).padEnd(8)}`, async () => loadRankedPhotos(big.id, author.id));
   await time('  (同批)', async () => listPlaces());
 }
 

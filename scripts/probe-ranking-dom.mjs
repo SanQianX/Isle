@@ -34,8 +34,12 @@ const info = await page.evaluate(() => {
 });
 
 console.log(`  HTTP ${response?.status()}`);
-console.log(`  照片卡片 ${info.photoCards} 个，行 ${info.rows} 行，图片 ${info.images} 张（已解码 ${info.loadedImages}）`);
-console.log(`  排行榜区 HTML ${(info.wallHtmlBytes / 1024).toFixed(0)} KB，文档 ${(info.documentBytes / 1024).toFixed(0)} KB`);
+console.log(
+  `  照片卡片 ${info.photoCards} 个，行 ${info.rows} 行，图片 ${info.images} 张（已解码 ${info.loadedImages}）`,
+);
+console.log(
+  `  排行榜区 HTML ${(info.wallHtmlBytes / 1024).toFixed(0)} KB，文档 ${(info.documentBytes / 1024).toFixed(0)} KB`,
+);
 console.log(`  第一名标记 "${info.status}"`);
 
 await browser.close();

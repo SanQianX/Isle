@@ -10,6 +10,15 @@ import { loadRankedPhotos } from '@/server/services/photo-query';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * How many photographs the ranking page renders on first load.
+ *
+ * Large enough that a normal place shows its whole ranking, small enough that
+ * an unusually large one still loads quickly. The remainder is fetched on
+ * demand through the API's cursor.
+ */
+const RANKING_PAGE_SIZE = 60;
+
 type PageProps = { params: Promise<{ slug: string }> };
 
 /**
@@ -29,7 +38,16 @@ export default async function RankingPage({ params }: PageProps) {
   const place = await getPlaceBySlug(slug);
   if (place === null) notFound();
 
-  const { photos, summary } = await loadRankedPhotos(place.id, resolved.visitor.id);
+  // The ranking page renders the leader plus a bounded number of photographs.
+  // It used to load every photograph of the place, so a place that accumulated
+  // a few hundred shots produced a page of a megabyte and a wall of hundreds of
+  // image elements. The rest are reachable through the API's own cursor
+  // pagination, which the board appends on demand.
+  const { photos, summary, totalPhotos, nextCursor } = await loadRankedPhotos(
+    place.id,
+    resolved.visitor.id,
+    RANKING_PAGE_SIZE,
+  );
 
   const items = photos.map((photo) => ({
     id: photo.id,
@@ -80,6 +98,8 @@ export default async function RankingPage({ params }: PageProps) {
             placeName={place.name}
             placeSlug={place.slug}
             items={items}
+            totalPhotos={totalPhotos}
+            nextCursor={nextCursor}
           />
         </div>
       </main>

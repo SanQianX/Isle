@@ -40,7 +40,13 @@ const prisma = new PrismaClient({ datasources: { db: { url: `file:${databaseFile
 
 try {
   const photos = await prisma.photo.findMany({
-    select: { id: true, originalKey: true, originalSha256: true, originalByteLength: true, status: true },
+    select: {
+      id: true,
+      originalKey: true,
+      originalSha256: true,
+      originalByteLength: true,
+      status: true,
+    },
   });
 
   const entries = [];

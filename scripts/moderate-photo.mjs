@@ -49,14 +49,24 @@ async function main() {
 
     if (action === 'hide') {
       await prisma.photo.update({ where: { id: photoId }, data: { status: 'HIDDEN' } });
-      await audit({ action: 'hide', photoId, reason: reason ?? null, by: process.env.SUDO_USER ?? 'unknown' });
+      await audit({
+        action: 'hide',
+        photoId,
+        reason: reason ?? null,
+        by: process.env.SUDO_USER ?? 'unknown',
+      });
       console.log(`hidden ${photoId}`);
       return;
     }
 
     if (action === 'show') {
       await prisma.photo.update({ where: { id: photoId }, data: { status: 'READY' } });
-      await audit({ action: 'show', photoId, reason: reason ?? null, by: process.env.SUDO_USER ?? 'unknown' });
+      await audit({
+        action: 'show',
+        photoId,
+        reason: reason ?? null,
+        by: process.env.SUDO_USER ?? 'unknown',
+      });
       console.log(`restored ${photoId}`);
       return;
     }
@@ -79,8 +89,15 @@ async function main() {
       }
 
       await prisma.photo.delete({ where: { id: photoId } });
-      await audit({ action: 'purge', photoId, originalKey: photo.originalKey, by: process.env.SUDO_USER ?? 'unknown' });
-      console.log(`purged ${photoId}; the file itself must be removed by scripts/reconcile-storage.mjs`);
+      await audit({
+        action: 'purge',
+        photoId,
+        originalKey: photo.originalKey,
+        by: process.env.SUDO_USER ?? 'unknown',
+      });
+      console.log(
+        `purged ${photoId}; the file itself must be removed by scripts/reconcile-storage.mjs`,
+      );
       return;
     }
 

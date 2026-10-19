@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 import { getPrisma } from '@/server/db/client';
-import { rankPhotos, type Rankable } from '@/server/ranking';
+import { encodeCursor, rankPhotos, type Rankable } from '@/server/ranking';
 
 /**
  * Page-level photo loading.
@@ -89,7 +89,13 @@ export async function loadRankedPhotos(
   placeId: string,
   visitorId: string,
   limit = Number.POSITIVE_INFINITY,
-): Promise<{ photos: PhotoView[]; summary: PlaceSummaryView; totalPhotos: number }> {
+): Promise<{
+  photos: PhotoView[];
+  summary: PlaceSummaryView;
+  totalPhotos: number;
+  /** Cursor for the next page, or null when everything is shown. */
+  nextCursor: string | null;
+}> {
   const prisma = await getPrisma();
 
   const [rows, ownVotes, totalPhotos] = await Promise.all([
@@ -154,10 +160,20 @@ export async function loadRankedPhotos(
   const sorted = rankPhotos(photos as unknown as Rankable[] as PhotoView[]);
   const limited = Number.isFinite(limit) ? sorted.slice(0, limit) : sorted;
 
+  // The cursor comes from the server's own encoder. The client must not
+  // re-implement it: two encoders that drift apart produce a page that silently
+  // skips photographs.
+  const last = limited[limited.length - 1];
+  const nextCursor =
+    last !== undefined && limited.length < totalPhotos
+      ? encodeCursor(last as unknown as Rankable)
+      : null;
+
   return {
     photos: limited.map((photo, index) => ({ ...photo, rank: index + 1 })),
     summary,
     totalPhotos,
+    nextCursor,
   };
 }
 

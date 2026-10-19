@@ -95,14 +95,20 @@ async function main() {
     ];
     const orphanFile = onDisk.filter((file) => !referenced.has(file));
 
-    console.log(JSON.stringify({
-      photos: photos.length,
-      filesOnDisk: onDisk.length,
-      missingFile,
-      previewless,
-      orphanFile: orphanFile.slice(0, 50),
-      orphanFileCount: orphanFile.length,
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          photos: photos.length,
+          filesOnDisk: onDisk.length,
+          missingFile,
+          previewless,
+          orphanFile: orphanFile.slice(0, 50),
+          orphanFileCount: orphanFile.length,
+        },
+        null,
+        2,
+      ),
+    );
 
     if (args.prune && orphanFile.length > 0) {
       for (const file of orphanFile) {
@@ -117,7 +123,9 @@ async function main() {
     // deleting the row.
     if (missingFile.length > 0) {
       process.exitCode = 2;
-      console.error(`${missingFile.length} photo(s) reference a missing original; restore from backup`);
+      console.error(
+        `${missingFile.length} photo(s) reference a missing original; restore from backup`,
+      );
     }
   } finally {
     await prisma.$disconnect();

@@ -37,7 +37,10 @@ process.env.ISLE_E2E = '1';
 process.env.NODE_ENV = 'production';
 
 const prismaCli = path.join(repoRoot, 'node_modules', 'prisma', 'build', 'index.js');
-execFileSync(process.execPath, [prismaCli, 'migrate', 'deploy'], { stdio: 'pipe', env: process.env });
+execFileSync(process.execPath, [prismaCli, 'migrate', 'deploy'], {
+  stdio: 'pipe',
+  env: process.env,
+});
 
 const { ingestPhotoBytes } = await import('../src/server/services/photo.ts');
 const { createPlace } = await import('../src/server/services/place.ts');
@@ -131,10 +134,15 @@ for (const target of STEPS) {
 console.log('\n=== 排名页（渲染全部照片）===');
 for (const target of STEPS) {
   const place = await time(`${ORIGIN}/places/${big.slug}/ranking`);
-  console.log(`  ${String(target).padEnd(6)} 张 → ${place.ms.toFixed(0).padStart(6)} ms, ${(place.bytes / 1024).toFixed(0)} KB`);
+  console.log(
+    `  ${String(target).padEnd(6)} 张 → ${place.ms.toFixed(0).padStart(6)} ms, ${(place.bytes / 1024).toFixed(0)} KB`,
+  );
 }
 
-const errors = serverLog.split('\n').filter((l) => /⨯|unhandled/.test(l)).slice(0, 5);
+const errors = serverLog
+  .split('\n')
+  .filter((l) => /⨯|unhandled/.test(l))
+  .slice(0, 5);
 if (errors.length > 0) {
   console.log('\n服务端错误：');
   for (const e of errors) console.log(`  ${e}`);
