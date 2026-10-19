@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { waitForHydration } from '../support';
+import { ORIGIN, waitForHydration } from '../support';
 
 /**
  * Visual regression (TEST_STRATEGY §6, VR-01..VR-12).
@@ -18,7 +18,6 @@ import { waitForHydration } from '../support';
 
 const DESKTOP = { width: 1440, height: 900 } as const;
 const MOBILE = { width: 390, height: 844 } as const;
-const ORIGIN = 'http://127.0.0.1:3017';
 
 async function settleImages(page: Page): Promise<void> {
   await page.waitForFunction(

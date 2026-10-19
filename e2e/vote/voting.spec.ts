@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type APIRequestContext } from '@playwright/test';
+import { ORIGIN } from '../support';
 
 /**
  * Voting through the real HTTP endpoint (E2E_SCENARIOS VOTE-01..VOTE-12).
@@ -11,7 +12,6 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
  * wiring itself is exercised in Phase 07.
  */
 
-const ORIGIN = 'http://127.0.0.1:3017';
 const FIXTURES = path.join(process.cwd(), 'tests', 'fixtures');
 
 type VoteResponse = {

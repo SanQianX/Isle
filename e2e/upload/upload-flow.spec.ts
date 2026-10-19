@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { waitForHydration } from '../support';
+import { ORIGIN, waitForHydration } from '../support';
 
 /**
  * Upload and place creation through the real UI (E2E_SCENARIOS UP-01..UP-16,
@@ -17,7 +17,7 @@ const FIXTURES = path.join(process.cwd(), 'tests', 'fixtures');
 /** Each test creates its own place so parallel workers cannot collide. */
 async function createPlace(page: Page, label: string) {
   const name = `${label} ${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const response = await page.request.post('http://127.0.0.1:3017/api/places', {
+  const response = await page.request.post(`${ORIGIN}/api/places`, {
     data: { name, region: '测试地区' },
   });
   expect(response.status()).toBe(201);

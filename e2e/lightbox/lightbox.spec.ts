@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { pressUntilSettled, waitForHydration } from '../support';
+import { ORIGIN, pressUntilSettled, waitForHydration } from '../support';
 
 /**
  * Lightbox and original delivery (E2E_SCENARIOS LB-01..LB-12).
@@ -226,7 +226,7 @@ test('focus returns to the trigger without help after closing', async ({ page, b
 });
 
 test('a ?photo deep link opens the viewer directly', async ({ page }) => {
-  const list = await page.request.get(`http://127.0.0.1:3017/api/places/guishan-island/photos`);
+  const list = await page.request.get(`${ORIGIN}/api/places/guishan-island/photos`);
   const body = (await list.json()) as { items: Array<{ id: string; title: string }> };
   const target = body.items[1];
   expect(target).toBeTruthy();

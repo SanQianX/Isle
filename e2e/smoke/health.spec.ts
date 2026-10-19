@@ -61,3 +61,18 @@ test('unmatched route renders a 404 rather than crashing', async ({ page }) => {
   expect(response?.status()).toBe(404);
   await expect(page.locator('body')).toBeVisible();
 });
+
+test('the health check reports whether the stylesheet is actually reachable', async ({
+  request,
+}) => {
+  // A release assembled without .next/static still answers every route with 200
+  // and renders the site as unstyled HTML: text overlapping, no layout, and
+  // nothing in the logs to say so. This check is what turns that into a visible
+  // failure instead of something only a human looking at the page would catch.
+  const response = await request.get('/api/health');
+  const body = await response.json();
+
+  expect(body.checks.staticAssets, 'staticAssets must be reported').toBeTruthy();
+  expect(body.checks.staticAssets.ok, 'the stylesheet must be reachable').toBe(true);
+  expect(response.status()).toBe(200);
+});

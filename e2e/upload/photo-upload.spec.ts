@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type APIRequestContext } from '@playwright/test';
+import { ORIGIN } from '../support';
 
 /**
  * Upload over a real browser (E2E_SCENARIOS UP-01, UP-07, UP-08, UP-11, UP-12,
@@ -12,7 +13,6 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
  */
 
 const FIXTURES = path.join(process.cwd(), 'tests', 'fixtures');
-const ORIGIN = 'http://127.0.0.1:3017';
 
 type Manifest = {
   generatedBy: string;

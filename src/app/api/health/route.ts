@@ -48,6 +48,35 @@ async function probeDatabase(): Promise<StorageProbe> {
 }
 
 /**
+ * Verify that the built stylesheet is actually reachable.
+ *
+ * A release assembled without .next/static still answers every route with 200
+ * and renders the site as unstyled HTML -- text overlapping, no layout. Nothing
+ * in the logs says so. This check turns that into a visible failure.
+ */
+async function probeStaticAssets(baseUrl: string): Promise<StorageProbe> {
+  try {
+    const response = await fetch(`${baseUrl}/`, { redirect: 'manual' });
+    const html = await response.text();
+    const match = /\/_next\/static\/css\/([a-z0-9]+\.css)/.exec(html);
+    if (match === null) {
+      return { ok: false, reason: 'NO_CSS_REFERENCE' };
+    }
+    const css = await fetch(`${baseUrl}/_next/static/css/${match[1]}`);
+    if (!css.ok) {
+      return { ok: false, reason: `CSS_${css.status}` };
+    }
+    const body = await css.text();
+    if (body.trim().length === 0) {
+      return { ok: false, reason: 'CSS_EMPTY' };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: 'STATIC_UNREACHABLE' };
+  }
+}
+
+/**
  * GET /api/health — DEPLOY_RUNBOOK §9.
  *
  * Checks DB readability and storage writability. Returns 200 when healthy and
@@ -72,11 +101,14 @@ export async function GET(): Promise<NextResponse> {
     );
   }
 
-  const [database, originalDir, previewRoot, tmpDir] = await Promise.all([
+  const [database, originalDir, previewRoot, tmpDir, staticAssets] = await Promise.all([
     probeDatabase(),
     probeWritableDir(config.originalDir),
     probeWritableDir(config.previewRoot),
     probeWritableDir(config.uploadTmpDir),
+    // Probed against our own origin so the check reflects what a visitor gets,
+    // not just what is on disk.
+    probeStaticAssets(`http://127.0.0.1:${process.env.PORT ?? '3000'}`),
   ]);
 
   const checks = {
@@ -85,9 +117,11 @@ export async function GET(): Promise<NextResponse> {
     originalDir,
     previewRoot,
     tmpDir,
+    staticAssets,
   };
 
-  const healthy = database.ok && originalDir.ok && previewRoot.ok && tmpDir.ok;
+  const healthy =
+    database.ok && originalDir.ok && previewRoot.ok && tmpDir.ok && staticAssets.ok;
 
   return NextResponse.json(
     {

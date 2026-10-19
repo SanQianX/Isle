@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type APIRequestContext } from '@playwright/test';
+import { ORIGIN } from '../support';
 
 /**
  * Leaderboard and media delivery (E2E_SCENARIOS HP-01, LB-02, LB-03, LB-12,
@@ -11,7 +12,6 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
  * checked against real data rather than fixtures invented in the test.
  */
 
-const ORIGIN = 'http://127.0.0.1:3017';
 const FIXTURES = path.join(process.cwd(), 'tests', 'fixtures');
 
 type ListItem = {

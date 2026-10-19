@@ -42,3 +42,43 @@ export async function expectGone(locator: Locator): Promise<void> {
 export async function waitForHydration(page: Page): Promise<void> {
   await expect(page.locator('html')).toHaveAttribute('data-hydrated', 'true', { timeout: 30_000 });
 }
+
+/**
+ * Origin of the server under test.
+ *
+ * Derived from the environment the harness set, never hard-coded. A literal
+ * port here means that running the suite with E2E_PORT set for one worker sends
+ * those requests to whatever happens to be listening on the default port --
+ * another worker's server, or nothing at all -- which turns a real failure into
+ * a misleading pass.
+ */
+export const ORIGIN: string =
+  process.env.E2E_BASE_URL ?? `http://127.0.0.1:${process.env.E2E_PORT ?? '3017'}`;
+
+/**
+ * Wait until every in-viewport image has decoded.
+ *
+ * Only images near the viewport are required: the gallery marks off-screen tiles
+ * lazy, so waiting on all of them never settles.
+ */
+export async function settleImages(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const height = window.innerHeight;
+      const visible = [...document.querySelectorAll('img')].filter((image) => {
+        const rect = image.getBoundingClientRect();
+        return rect.bottom > 0 && rect.top < height;
+      });
+      if (visible.length === 0) return true;
+      return visible.every((image) => {
+        const element = image as HTMLImageElement;
+        return element.complete && element.naturalWidth > 0;
+      });
+    },
+    undefined,
+    { timeout: 20_000 },
+  );
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
+}

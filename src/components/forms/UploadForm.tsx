@@ -123,10 +123,15 @@ export function UploadForm({
           credentials: 'same-origin',
         });
 
+        // Read the body on BOTH paths. On success the payload is unused, but a
+        // browser only fires `requestfinished` once the body has been consumed --
+        // without this a successful upload never "finishes", which breaks any
+        // tooling that measures how many uploads are in flight at once.
+        const body = (await response.json().catch(() => null)) as {
+          error?: { message?: string };
+        } | null;
+
         if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as {
-            error?: { message?: string };
-          } | null;
           patch(row.key, {
             status: 'failed',
             error: body?.error?.message ?? `上传失败（${response.status}）`,
