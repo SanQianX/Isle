@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { Prisma } from '@prisma/client';
+import { Prisma, type PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import { ApiError } from '@/lib/errors';
 import { buildPlaceSlug, normalizePlaceName } from '@/lib/place-name';
@@ -83,13 +83,78 @@ const placeInclude = {
   },
 } satisfies Prisma.PlaceInclude;
 
+/**
+ * Per-place counts, aggregated by the database.
+ *
+ * The list page needs three numbers per place and nothing else. Fetching every
+ * photo and every vote of every place to count them meant the list got slower
+ * as the *whole site* accumulated photographs -- a place with 500 shots made
+ * every other place's row more expensive to read.
+ *
+ * The SQL is a plain JOIN with a GROUP BY, so it moves to another engine
+ * unchanged.
+ */
+type PlaceAggregate = {
+  placeId: string;
+  photoCount: number | bigint;
+  contributorCount: number | bigint;
+  totalVotes: number | bigint;
+};
+
+async function aggregatePlaces(
+  prisma: PrismaClient,
+): Promise<Map<string, { photoCount: number; contributorCount: number; totalVotes: number }>> {
+  const rows = await prisma.$queryRaw<Array<PlaceAggregate>>`
+    SELECT
+      p.id AS placeId,
+      COUNT(DISTINCT ph.id) AS photoCount,
+      COUNT(DISTINCT ph.visitorId) AS contributorCount,
+      COALESCE(SUM(v.value), 0) AS totalVotes
+    FROM Place p
+    LEFT JOIN Photo ph ON ph.placeId = p.id AND ph.status = 'READY'
+    LEFT JOIN Vote v ON v.photoId = ph.id
+    GROUP BY p.id
+  `;
+
+  const result = new Map<
+    string,
+    { photoCount: number; contributorCount: number; totalVotes: number }
+  >();
+  for (const row of rows) {
+    result.set(row.placeId, {
+      photoCount: Number(row.photoCount),
+      contributorCount: Number(row.contributorCount),
+      totalVotes: Number(row.totalVotes),
+    });
+  }
+  return result;
+}
+
 export async function listPlaces(): Promise<PlaceSummary[]> {
   const prisma = await getPrisma();
-  const places = await prisma.place.findMany({
-    include: placeInclude,
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+  const [places, counts] = await Promise.all([
+    prisma.place.findMany({ orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] }),
+    aggregatePlaces(prisma),
+  ]);
+
+  return places.map((place) => {
+    const tally = counts.get(place.id) ?? {
+      photoCount: 0,
+      contributorCount: 0,
+      totalVotes: 0,
+    };
+    return {
+      id: place.id,
+      slug: place.slug,
+      name: place.name,
+      region: place.region,
+      description: place.description,
+      createdAt: place.createdAt.toISOString(),
+      photoCount: tally.photoCount,
+      contributorCount: tally.contributorCount,
+      coverPhotoId: null,
+    };
   });
-  return places.map(summarize);
 }
 
 /**

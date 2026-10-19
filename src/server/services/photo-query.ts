@@ -1,5 +1,7 @@
+import type { PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { getPrisma } from '@/server/db/client';
-import { rankPhotos, tallyVotes } from '@/server/ranking';
+import { rankPhotos, type Rankable } from '@/server/ranking';
 
 /**
  * Page-level photo loading.
@@ -7,6 +9,12 @@ import { rankPhotos, tallyVotes } from '@/server/ranking';
  * Every page that shows photographs goes through here so the ranking rules live
  * in exactly one place: a home page that ordered differently from the ranking
  * page would be a silent, very confusing bug.
+ *
+ * The vote counts are aggregated by the database rather than by loading every
+ * vote row and counting in JavaScript. The difference is not academic: a place
+ * with 500 photos that have been voted on pulls thousands of vote rows through
+ * the connection, the query and the heap, when the same answer needs one row
+ * per photo.
  */
 
 export type PhotoView = {
@@ -37,78 +45,119 @@ export type PlaceSummaryView = {
 };
 
 /**
+ * Vote totals per photo, computed in the database.
+ *
+ * One row per photo instead of one row per vote. The SQL is deliberately plain
+ * -- a JOIN and a GROUP BY -- so it ports to another engine unchanged.
+ */
+async function aggregateVotes(
+  prisma: PrismaClient,
+  photoIds: string[],
+): Promise<Map<string, { upCount: number; downCount: number }>> {
+  if (photoIds.length === 0) return new Map();
+
+  const rows = await prisma.$queryRaw<
+    Array<{ photoId: string; upCount: bigint | number; downCount: bigint | number }>
+  >`
+    SELECT
+      photoId,
+      SUM(CASE WHEN value > 0 THEN 1 ELSE 0 END) AS upCount,
+      SUM(CASE WHEN value < 0 THEN 1 ELSE 0 END) AS downCount
+    FROM Vote
+    WHERE photoId IN (${Prisma.join(photoIds)})
+    GROUP BY photoId
+  `;
+
+  const result = new Map<string, { upCount: number; downCount: number }>();
+  for (const row of rows) {
+    result.set(row.photoId, {
+      upCount: Number(row.upCount),
+      downCount: Number(row.downCount),
+    });
+  }
+  return result;
+}
+
+/**
  * Ranked READY photos for a place, plus the rolled-up counts the hero shows.
  *
  * `limit` caps how many are materialised; pass a large number for the full
- * ranking page. Totals are computed over the *whole* place, not the page, so a
- * hero never claims "08 photos" when there are 40.
+ * ranking. Totals are computed over the *whole* place, not the page, so a hero
+ * never claims "08 photos" when there are 40.
  */
 export async function loadRankedPhotos(
   placeId: string,
   visitorId: string,
   limit = Number.POSITIVE_INFINITY,
-): Promise<{ photos: PhotoView[]; summary: PlaceSummaryView }> {
+): Promise<{ photos: PhotoView[]; summary: PlaceSummaryView; totalPhotos: number }> {
   const prisma = await getPrisma();
 
-  const [rows, ownVotes] = await Promise.all([
+  const [rows, ownVotes, totalPhotos] = await Promise.all([
     prisma.photo.findMany({
       where: { placeId, status: 'READY' },
-      include: {
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        width: true,
+        height: true,
+        originalMime: true,
+        originalByteLength: true,
+        createdAt: true,
         visitor: { select: { displayCode: true } },
-        votes: { select: { value: true } },
       },
     }),
-    prisma.vote.findMany({ where: { visitorId }, select: { photoId: true, value: true } }),
+    prisma.vote.findMany({
+      where: { visitorId },
+      select: { photoId: true, value: true },
+    }),
+    prisma.photo.count({ where: { placeId, status: 'READY' } }),
   ]);
 
   const ownByPhoto = new Map(ownVotes.map((vote) => [vote.photoId, vote.value]));
-
-  const totals = tallyVotes(
-    rows.flatMap((row) => row.votes.map((vote) => ({ photoId: row.id, value: vote.value }))),
+  const counts = await aggregateVotes(
+    prisma,
+    rows.map((row) => row.id),
   );
+
+  const photos: PhotoView[] = rows.map((row) => {
+    const tally = counts.get(row.id) ?? { upCount: 0, downCount: 0 };
+    const own = ownByPhoto.get(row.id);
+    return {
+      id: row.id,
+      rank: 0,
+      title: row.title,
+      description: row.description,
+      width: row.width,
+      height: row.height,
+      mime: row.originalMime,
+      bytes: row.originalByteLength,
+      createdAt: row.createdAt,
+      uploaderDisplayCode: row.visitor.displayCode,
+      upCount: tally.upCount,
+      downCount: tally.downCount,
+      score: tally.upCount - tally.downCount,
+      currentVisitorVote: own === 1 ? 1 : own === -1 ? -1 : 0,
+      preview400Url: `/api/photos/${row.id}/preview/400`,
+      preview1200Url: `/api/photos/${row.id}/preview/1200`,
+      originalUrl: `/api/photos/${row.id}/original`,
+      downloadUrl: `/api/photos/${row.id}/download`,
+    };
+  });
 
   const summary: PlaceSummaryView = {
-    photoCount: rows.length,
-    contributorCount: new Set(rows.map((row) => row.visitorId)).size,
-    totalVotes: [...totals.values()].reduce(
-      (sum, counts) => sum + counts.upCount - counts.downCount,
-      0,
-    ),
+    photoCount: totalPhotos,
+    contributorCount: new Set(rows.map((row) => row.visitor.displayCode)).size,
+    totalVotes: photos.reduce((sum, photo) => sum + photo.score, 0),
   };
 
-  // Rank the entire set before slicing, so `rank` is the true leaderboard
-  // position and not a position within whatever page we happen to return.
-  const ranked = rankPhotos(
-    rows.map((row) => {
-      const counts = totals.get(row.id) ?? { upCount: 0, downCount: 0 };
-      const own = ownByPhoto.get(row.id);
-      return {
-        id: row.id,
-        title: row.title,
-        description: row.description,
-        width: row.width,
-        height: row.height,
-        mime: row.originalMime,
-        bytes: row.originalByteLength,
-        createdAt: row.createdAt,
-        uploaderDisplayCode: row.visitor.displayCode,
-        upCount: counts.upCount,
-        downCount: counts.downCount,
-        score: counts.upCount - counts.downCount,
-        currentVisitorVote: (own === 1 ? 1 : own === -1 ? -1 : 0) as -1 | 0 | 1,
-        preview400Url: `/api/photos/${row.id}/preview/400`,
-        preview1200Url: `/api/photos/${row.id}/preview/1200`,
-        originalUrl: `/api/photos/${row.id}/original`,
-        downloadUrl: `/api/photos/${row.id}/download`,
-      };
-    }),
-  );
-
-  const limited = Number.isFinite(limit) ? ranked.slice(0, limit) : ranked;
+  const sorted = rankPhotos(photos as unknown as Rankable[] as PhotoView[]);
+  const limited = Number.isFinite(limit) ? sorted.slice(0, limit) : sorted;
 
   return {
     photos: limited.map((photo, index) => ({ ...photo, rank: index + 1 })),
     summary,
+    totalPhotos,
   };
 }
 
