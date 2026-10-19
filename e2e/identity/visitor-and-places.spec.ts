@@ -29,8 +29,14 @@ async function getJson<T>(page: Page, url: string): Promise<T> {
  * four runs would correctly get 409 -- which is duplicate protection working,
  * not a flake.
  */
+let nameCounter = 0;
+
 function uniquePlaceName(): string {
-  return `海陵岛 ${process.pid}-${Math.floor(process.hrtime()[1] % 100_000)}`;
+  // Process id, clock, a counter and a random suffix. Any one of these alone
+  // can repeat when five browser projects create places against one database.
+  nameCounter += 1;
+  const random = Math.random().toString(36).slice(2, 8);
+  return `海陵岛 ${process.pid}-${Date.now()}-${nameCounter}-${random}`;
 }
 
 test('a fresh browser receives a secure-by-default visitor cookie', async ({ page, context }) => {

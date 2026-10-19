@@ -167,6 +167,22 @@ export function RankingBoard({ placeId, placeName, placeSlug, items: initialItem
     [pathname, router, searchParams],
   );
 
+  /**
+   * Moving between photos inside the viewer updates the URL with replace, not
+   * push. Pushing per photo would make Back walk back through every image the
+   * user looked at, instead of simply closing the viewer (NAV-03).
+   */
+  const stepToPhoto = useCallback(
+    (id: string) => {
+      selfWrittenRef.current = id;
+      setOpenPhotoId(id);
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('photo', id);
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+
   const closePhoto = useCallback(() => {
     selfWrittenRef.current = null;
     setOpenPhotoId(null);
@@ -321,7 +337,7 @@ export function RankingBoard({ placeId, placeName, placeSlug, items: initialItem
         items={items}
         activeId={openPhotoId}
         onClose={closePhoto}
-        onNavigate={openPhoto}
+        onNavigate={stepToPhoto}
         onVoteApplied={handleVote}
       />
     </div>

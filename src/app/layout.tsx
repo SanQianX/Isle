@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { HydrationMarker } from '@/components/shell/HydrationMarker';
 import './globals.css';
 import './isle.css';
 
@@ -18,7 +19,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN" data-tone="paper" suppressHydrationWarning>
-      <body>{children}</body>
+      <body>
+        <HydrationMarker />
+        {children}
+      </body>
     </html>
   );
 }

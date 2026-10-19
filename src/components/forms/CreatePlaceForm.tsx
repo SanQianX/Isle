@@ -30,9 +30,33 @@ export function CreatePlaceForm() {
   const [duplicateSlug, setDuplicateSlug] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  /**
+   * Validate before sending.
+   *
+   * The server already rejects a blank name, but only after a round trip. A form
+   * that fires a request it knows will fail is both slower and easier to get
+   * wrong, and the contract asks for a Chinese validation message rather than a
+   * server error page.
+   */
+  function validate(): FieldErrors {
+    const errors: FieldErrors = {};
+    if (name.trim().length === 0) errors.name = '请填写地点名称';
+    if (region.trim().length < 2) errors.region = '请填写所在地区';
+    if (description.length > DESCRIPTION_MAX)
+      errors.description = `介绍最多 ${DESCRIPTION_MAX} 个字`;
+    return errors;
+  }
+
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting) return;
+
+    const local = validate();
+    if (Object.keys(local).length > 0) {
+      setFieldErrors(local);
+      setFormError('请检查下面标红的内容');
+      return;
+    }
 
     setSubmitting(true);
     setFormError(null);
@@ -49,11 +73,13 @@ export function CreatePlaceForm() {
 
       if (response.status === 409) {
         const body = (await response.json().catch(() => null)) as {
-          error?: { message?: string };
-          details?: { slug?: string };
+          error?: { message?: string; details?: { slug?: string } };
         } | null;
+        // `details` lives *inside* the error envelope, not beside it. Reading it
+        // from the top level silently yielded no slug, so the "go to the
+        // existing place" link never appeared on a genuine conflict.
         setFormError(body?.error?.message ?? '这个地点已经存在');
-        setDuplicateSlug(body?.details?.slug ?? null);
+        setDuplicateSlug(body?.error?.details?.slug ?? null);
         return;
       }
 

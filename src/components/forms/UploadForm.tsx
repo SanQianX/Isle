@@ -60,33 +60,8 @@ export function UploadForm({
     setRows((current) => current.map((row) => (row.key === key ? { ...row, ...changes } : row)));
   }, []);
 
-  const addFiles = useCallback(
-    (files: FileList | File[]) => {
-      setRows((current) => {
-        const room = limits.maxUploadFiles - current.length;
-        if (room <= 0) return current;
-
-        const added: Row[] = [];
-        for (const file of Array.from(files).slice(0, room)) {
-          rowCounter += 1;
-          added.push({
-            key: `${rowCounter}`,
-            file,
-            // Default the title from the filename without its extension.
-            title: file.name.replace(/\.[^.]+$/, '').slice(0, 80),
-            description: '',
-            status: 'queued',
-            error: null,
-          });
-        }
-        return [...current, ...added];
-      });
-    },
-    [limits.maxUploadFiles],
-  );
-
   /** Pre-flight: reject obvious problems before spending an upload. */
-  const validate = useCallback(
+  const validateFile = useCallback(
     (file: File): string | null => {
       const allowed = ['image/jpeg', 'image/png', 'image/webp'];
       if (!allowed.includes(file.type)) {
@@ -98,6 +73,35 @@ export function UploadForm({
       return null;
     },
     [limits.maxUploadBytes],
+  );
+
+  const addFiles = useCallback(
+    (files: File[]) => {
+      setRows((current) => {
+        const room = limits.maxUploadFiles - current.length;
+        if (room <= 0) return current;
+
+        const added: Row[] = [];
+        for (const file of Array.from(files).slice(0, room)) {
+          rowCounter += 1;
+          // Reject on selection, not after the upload: FRONTEND_UX 3.5 wants
+          // the size and type problem stated up front. The row is still listed
+          // so the user can see which file was refused and remove it.
+          const problem = validateFile(file);
+          added.push({
+            key: `${rowCounter}`,
+            file,
+            // Default the title from the filename without its extension.
+            title: file.name.replace(/\.[^.]+$/, '').slice(0, 80),
+            description: '',
+            status: problem === null ? 'queued' : 'failed',
+            error: problem,
+          });
+        }
+        return [...current, ...added];
+      });
+    },
+    [limits.maxUploadFiles, validateFile],
   );
 
   const uploadOne = useCallback(
@@ -163,7 +167,9 @@ export function UploadForm({
 
   async function submit() {
     if (submitting) return;
-    const queued = rows.filter((row) => row.status !== 'success');
+    // Only work that has not already been refused or finished. A file rejected
+    // on selection must not be uploaded by a later click.
+    const queued = rows.filter((row) => row.status === 'queued' || row.status === 'uploading');
     if (queued.length === 0) return;
     if (!acknowledged) return;
 
@@ -172,7 +178,9 @@ export function UploadForm({
     // not silently lost.
     const targets = queued.map((row) => ({ ...row, description }));
     setRows((current) =>
-      current.map((row) => (row.status === 'success' ? row : { ...row, description })),
+      current.map((row) =>
+        row.status === 'success' || row.status === 'failed' ? row : { ...row, description },
+      ),
     );
     await runQueue(targets);
     setSubmitting(false);
@@ -182,7 +190,7 @@ export function UploadForm({
     () => ({
       success: rows.filter((row) => row.status === 'success').length,
       failed: rows.filter((row) => row.status === 'failed').length,
-      pending: rows.filter((row) => row.status !== 'success').length,
+      pending: rows.filter((row) => row.status === 'queued' || row.status === 'uploading').length,
     }),
     [rows],
   );
@@ -214,7 +222,7 @@ export function UploadForm({
         onDrop={(event) => {
           event.preventDefault();
           setDragging(false);
-          if (event.dataTransfer.files.length > 0) addFiles(event.dataTransfer.files);
+          if (event.dataTransfer.files.length > 0) addFiles(Array.from(event.dataTransfer.files));
         }}
       >
         <div className="upload-mark">＋</div>
@@ -235,9 +243,14 @@ export function UploadForm({
           hidden
           data-testid="file-input"
           onChange={(event) => {
-            if (event.target.files !== null) addFiles(event.target.files);
+            // Copy before clearing: `input.value = ''` resets the live FileList
+            // to empty, and React reads the state updater after this handler
+            // returns. Passing the live FileList through lost every file but
+            // the last, and made a second selection silently replace the first.
+            const picked = event.target.files === null ? [] : Array.from(event.target.files);
             // Allow re-picking the same file after a removal.
             event.target.value = '';
+            if (picked.length > 0) addFiles(picked);
           }}
         />
       </div>
@@ -286,7 +299,7 @@ export function UploadForm({
                       type="button"
                       className="btn-quiet"
                       onClick={() => {
-                        const problem = validate(row.file);
+                        const problem = validateFile(row.file);
                         if (problem !== null) {
                           patch(row.key, { status: 'failed', error: problem });
                           return;

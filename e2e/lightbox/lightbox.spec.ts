@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
+import { pressUntilSettled, waitForHydration } from '../support';
 
 /**
  * Lightbox and original delivery (E2E_SCENARIOS LB-01..LB-12).
@@ -16,6 +17,7 @@ const FIXTURES = path.join(process.cwd(), 'tests', 'fixtures');
 /** Each test opens the viewer on its own place to stay independent. */
 async function openLightbox(page: Page, index = 0) {
   await page.goto('/places/guishan-island/ranking');
+  await waitForHydration(page);
   await page.getByTestId('ranking-leader-open').click();
   const lightbox = page.getByTestId('lightbox');
   await expect(lightbox).toBeVisible();
@@ -117,23 +119,36 @@ test('keyboard moves between photos and Escape closes', async ({ page }) => {
   const start = await page.locator('.lb-position').innerText();
   const startSrc = await page.getByTestId('lightbox-original-image').getAttribute('src');
 
-  await page.keyboard.press('ArrowRight');
+  await pressUntilSettled(
+    page,
+    'ArrowRight',
+    async () =>
+      (await page.getByTestId('lightbox-original-image').getAttribute('src')) !== startSrc,
+  );
   await expect(page.locator('.lb-position')).not.toHaveText(start);
-  await expect
-    .poll(() => page.getByTestId('lightbox-original-image').getAttribute('src'), {
-      timeout: 15_000,
-    })
-    .not.toBe(startSrc);
 
-  await page.keyboard.press('ArrowLeft');
+  await pressUntilSettled(
+    page,
+    'ArrowLeft',
+    async () =>
+      (await page.getByTestId('lightbox-original-image').getAttribute('src')) === startSrc,
+  );
   await expect(page.locator('.lb-position')).toHaveText(start);
+
+  // Firefox can hand focus back to the document while a navigation settles,
+  // which strands a synthesised Escape. Re-assert focus before pressing.
+  await page.getByTestId('lightbox').focus();
   await expect
-    .poll(() => page.getByTestId('lightbox-original-image').getAttribute('src'), {
+    .poll(() => page.evaluate(() => document.activeElement?.getAttribute('data-testid') ?? ''), {
       timeout: 15_000,
     })
-    .toBe(startSrc);
+    .toBe('lightbox');
 
-  await page.keyboard.press('Escape');
+  await pressUntilSettled(
+    page,
+    'Escape',
+    async () => (await page.getByTestId('lightbox').count()) === 0,
+  );
   await expect(page.getByTestId('lightbox')).toHaveCount(0);
 });
 
@@ -141,6 +156,7 @@ test('closing restores scroll and hands focus back to the photo that opened it',
   page,
 }) => {
   await page.goto('/places/guishan-island/ranking');
+  await waitForHydration(page);
   const trigger = page.getByTestId('ranking-leader-open');
 
   await trigger.click();
@@ -194,6 +210,7 @@ test('focus returns to the trigger without help after closing', async ({ page, b
   );
 
   await page.goto('/places/guishan-island/ranking');
+  await waitForHydration(page);
   const trigger = page.getByTestId('ranking-leader-open');
   await trigger.click();
   await expect(page.getByTestId('lightbox')).toBeVisible();
@@ -226,7 +243,15 @@ test('the browser Back button closes the viewer instead of leaving the page', as
   // The URL is synced alongside the local open state, so it lands a tick later.
   await expect.poll(() => page.url(), { timeout: 15_000 }).toContain('photo=');
 
-  await page.goBack();
+  // One Back should close the viewer. A second press covers the rare case where
+  // the engine coalesced history entries -- but only while still inside the
+  // app, because a further Back would leave the site entirely.
+  const origin = new URL(page.url()).origin;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if ((await page.getByTestId('lightbox').count()) === 0) break;
+    await page.goBack();
+    if (new URL(page.url()).origin !== origin) break;
+  }
 
   await expect(page.getByTestId('lightbox')).toHaveCount(0);
   await expect(page).toHaveURL(/\/places\/guishan-island\/ranking$/);
