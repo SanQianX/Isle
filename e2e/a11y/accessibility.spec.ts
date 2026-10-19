@@ -196,3 +196,31 @@ test.describe('accessibility', () => {
     expect(new Set(reached).size).toBeGreaterThan(2);
   });
 });
+
+test('every interactive control is big enough to tap', async ({ page }) => {
+  // WCAG 2.2 AA Target Size (Minimum) is 24x24 CSS pixels. The navigation
+  // links measured 22px wide on a phone, which is a real problem on a site
+  // whose main audience is people opening it on a phone.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.waitForSelector('html[data-hydrated="true"]');
+
+  const tooSmall = await page.evaluate(() => {
+    const problems: string[] = [];
+    for (const node of document.querySelectorAll('button, a[href]')) {
+      const rect = node.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) continue;
+      // The visible box must be large enough; a pseudo-element that extends
+      // the hit area is a legitimate technique, so it is measured separately.
+      if (rect.width < 24 || rect.height < 24) {
+        const label = (node.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 18);
+        problems.push(
+          `${node.tagName}"${label}" ${Math.round(rect.width)}x${Math.round(rect.height)}`,
+        );
+      }
+    }
+    return problems;
+  });
+
+  expect(tooSmall, `触控目标小于 24x24: ${tooSmall.join(' | ')}`).toEqual([]);
+});

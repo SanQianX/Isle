@@ -145,3 +145,46 @@ header.site-header{position:relative;z-index:3;background:var(--hero);border-bot
   overflow-wrap:anywhere;
   word-break:normal;
 }
+
+/* --- Touch target size (WCAG 2.2 AA, Target Size Minimum) --------------
+   The navigation links measured 22x41px on a phone -- a 22px-wide target for
+   a two-character label is genuinely hard to hit, and the breadcrumb link was
+   only 17px tall.
+
+   The fix extends the *hit area* with a pseudo-element rather than padding
+   the element. Padding would have widened the header and changed the layout
+   that the V4.1 reference captured; an overlay grows the touchable region
+   invisibly and leaves the typography alone. The horizontal extension is
+   deliberately small so two adjacent links cannot steal each other's taps.
+   */
+.nav a,
+.breadcrumb a,
+.brand{
+  position:relative;
+}
+.nav a::after,
+.breadcrumb a::after,
+.brand::after{
+  content:"";
+  position:absolute;
+  left:0;
+  right:0;
+  top:-10px;
+  bottom:-10px;
+}
+/* The flex items need an explicit floor: the links are shorter than 24px
+   across even after the overlay. */
+.nav a{
+  min-width:24px;
+  min-height:24px;
+  display:inline-flex;
+  align-items:center;
+}
+.breadcrumb a{
+  min-height:24px;
+  display:inline-flex;
+  align-items:center;
+}
+.brand{
+  min-height:24px;
+}
