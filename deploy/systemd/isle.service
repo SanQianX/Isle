@@ -1,0 +1,70 @@
+# ISLE — production service unit.
+#
+# Install to /etc/systemd/system/isle.service, then:
+#   systemctl daemon-reload && systemctl enable --now isle
+#
+# Read DEPLOY_RUNBOOK §4 before editing. The hardening below is not optional:
+# it is what keeps a compromised image-upload path from reading /etc/shadow.
+
+[Unit]
+Description=ISLE location photo ranking website
+Documentation=file:///opt/isle/current/docs/operations/OPERATIONS.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=isle
+Group=isle
+WorkingDirectory=/opt/isle/current
+EnvironmentFile=/etc/isle/isle.env
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+
+# ExecStart runs the Next standalone server, which is the same artifact the E2E
+# suite boots, so the tested runtime is the shipped runtime.
+ExecStart=/usr/bin/node server.js
+
+Restart=on-failure
+RestartSec=3
+# A crash loop is a real fault; do not hide it behind endless restarts.
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# --- Hardening ---
+# Only /var/lib/isle is writable, so a compromised route cannot write into the
+# release directory or anywhere else on the filesystem.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=false
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+ReadWritePaths=/var/lib/isle
+UMask=0077
+
+# Uploads and originals are large; allow headroom without letting a runaway
+# request exhaust the host.
+LimitNOFILE=65535
+LimitMEMLOCK=infinity
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=isle
+
+[Install]
+WantedBy=multi-user.target
