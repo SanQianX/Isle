@@ -119,12 +119,16 @@ async function findElementsPastViewport(page: Page): Promise<{
 
     const describe = (element: Element): string => {
       const classes = element.getAttribute('class');
+      const text = (element.textContent ?? '').trim().replace(/\s+/g, ' ').slice(0, 30);
+      const parent = element.parentElement;
       return [
         element.tagName.toLowerCase(),
         element.id === '' ? '' : `#${element.id}`,
         classes === null || classes.trim() === ''
           ? ''
           : `.${classes.trim().split(/\s+/).join('.')}`,
+        `«${text}»`,
+        `in<${parent?.tagName.toLowerCase() ?? '?'}.${(parent?.getAttribute('class') ?? '').slice(0, 20)}>`,
       ].join('');
     };
 

@@ -124,3 +124,24 @@ header.site-header{position:relative;z-index:3;background:var(--hero);border-bot
    toggled by a JS class. The React version renders it conditionally instead,
    so it needs an explicit visible state. */
 .lb-unavailable.lb-error-shown{display:flex;flex-direction:column;align-items:center;gap:4px}
+
+/* --- Long user text -----------------------------------------------------
+   Place names, photo titles and descriptions are user-supplied and can be
+   arbitrarily long. A run with no usable break opportunity -- "2024-01-01-12-34"
+   or a long URL pasted into a title -- would otherwise push its container
+   wider than the viewport, and the overflow-x: clip further up the cascade
+   would silently cut the text off instead of wrapping it.
+
+   `anywhere` rather than `break-word`: it also reduces the element's
+   min-content width, so the containing grid item is allowed to shrink and the
+   line actually wraps instead of overflowing. */
+.feature-text h2,
+.feature-region,
+.caption-title,
+.pick-title,
+.lb-title,
+.breadcrumb a,
+.feature-number{
+  overflow-wrap:anywhere;
+  word-break:normal;
+}
