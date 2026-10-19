@@ -109,6 +109,49 @@ function toPublicPhoto(
   };
 }
 
+/**
+ * Errno codes that mean "the disk said no", as opposed to a bug or bad input.
+ *
+ * ENOSPC and EDQUOT in particular are the ones a photo site will actually hit,
+ * and they are recoverable: the user can free space or pick another photo and
+ * try again. Reporting them as a 500 tells them nothing and tells the operator
+ * nothing actionable either.
+ */
+const STORAGE_ERRNO = new Set([
+  'EACCES',
+  'EPERM',
+  'ENOSPC',
+  'EDQUOT',
+  'EROFS',
+  'ENOTDIR',
+  'EIO',
+  'EBUSY',
+  'ENOENT',
+  'EMFILE',
+  'ENFILE',
+]);
+
+/**
+ * Run a storage write, translating a filesystem refusal into the documented
+ * retryable 503 (E2E_SCENARIOS SEC-09).
+ *
+ * The read path already did this by hand in src/server/http/media.ts; the write
+ * path threw raw Node errors, which the error handler turned into a generic 500
+ * "服务器开小差了". A full disk is not an internal error, and the difference
+ * decides whether a client retries.
+ */
+async function withStorageErrors<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== undefined && STORAGE_ERRNO.has(code)) {
+      throw ApiError.storageUnavailable('照片存储暂时不可用，请检查磁盘空间后重试');
+    }
+    throw error;
+  }
+}
+
 export async function ingestPhoto(input: IngestInput): Promise<IngestedPhoto> {
   const config = getConfig();
   const prisma = await getPrisma();
@@ -162,7 +205,9 @@ export async function ingestPhoto(input: IngestInput): Promise<IngestedPhoto> {
     //    of the upload, and putOriginal streams the temp file through without
     //    re-encoding, fsyncing and refusing to overwrite an existing key.
     const originalKey = DiskStorage.buildOriginalKey(file.sha256, mime);
-    const stored = await storage.putOriginal(originalKey, createReadStream(file.tempPath));
+    const stored = await withStorageErrors(() =>
+      storage.putOriginal(originalKey, createReadStream(file.tempPath)),
+    );
     writtenKeys.push(originalKey);
 
     // Second, independent hash of the same bytes. They were computed by
@@ -181,7 +226,7 @@ export async function ingestPhoto(input: IngestInput): Promise<IngestedPhoto> {
     for (const size of PREVIEW_SIZES) {
       const preview = await renderPreview(bytes, size, { maxPixels: config.maxImagePixels });
       const key = DiskStorage.buildPreviewKey(file.sha256, size);
-      await storage.putDerivative(key, new Uint8Array(preview));
+      await withStorageErrors(() => storage.putDerivative(key, new Uint8Array(preview)));
       writtenKeys.push(key);
       previewKeys[size] = key;
     }
