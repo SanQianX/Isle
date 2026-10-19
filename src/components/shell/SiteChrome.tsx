@@ -22,7 +22,11 @@ export function SiteHeader({ visitorLabel, active, onHome }: SiteChromeProps) {
   return (
     <header className="site-header">
       <div className="wrap header-line">
-        <Link href="/" className="brand" aria-label="ISLE 返回首页">
+        {/* No aria-label: an explicit label that does not contain the visible
+            text fails WCAG's label-in-name rule. The visible text plus the link
+            role already reads as "ISLE · 每一处风景，都值得被看见, link", which
+            is the correct name for a home link. */}
+        <Link href="/" className="brand">
           ISLE
           <span>·</span>
           <span className="brand-sub">每一处风景，都值得被看见</span>

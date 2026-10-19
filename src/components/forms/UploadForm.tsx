@@ -205,7 +205,9 @@ export function UploadForm({
         className={dragging ? 'dropzone drag' : 'dropzone'}
         role="button"
         tabIndex={0}
-        aria-label="选择多张照片"
+        // No aria-label: the visible text ("点击选择照片，或将照片拖到这里") is
+        // already a correct accessible name, and an aria-label that does not
+        // contain it fails WCAG's label-in-name rule.
         data-testid="dropzone"
         onClick={() => inputRef.current?.click()}
         onKeyDown={(event) => {
@@ -261,14 +263,17 @@ export function UploadForm({
             <li className="upload-row" key={row.key} data-testid={`upload-row-${row.key}`}>
               <div className="preview-image">
                 <img src={URL.createObjectURL(row.file)} alt={row.title} />
+                {/* The visible glyph is hidden from the accessibility tree and
+                    the name comes from adjacent text, so the accessible name
+                    still contains what a sighted user reads (WCAG label-in-name). */}
                 <button
                   type="button"
-                  aria-label={`移除 ${row.title}`}
                   onClick={() =>
                     setRows((current) => current.filter((item) => item.key !== row.key))
                   }
                 >
-                  ×
+                  <span aria-hidden="true">×</span>
+                  <span className="sr-only">移除 {row.title}</span>
                 </button>
               </div>
               <div className="upload-row-info">

@@ -80,11 +80,12 @@ export default async function PlacesPage() {
               const leader = leaders.get(place.id) ?? null;
               return (
                 <article className="place-feature" key={place.id}>
-                  <Link
-                    href={`/places/${place.slug}`}
-                    className="feature-image photo-media"
-                    aria-label={`打开${place.name}地点榜单`}
-                  >
+                  {/* No aria-label: it did not contain the link's visible
+                      text, which fails WCAG label-in-name. The name now comes
+                      from the contents -- the photograph's alt text, or the
+                      empty-state sentence -- both of which lead with the
+                      place name. */}
+                  <Link href={`/places/${place.slug}`} className="feature-image photo-media">
                     {leader === null ? (
                       <div className="offline" style={{ display: 'flex' }}>
                         {place.name}还没有照片
