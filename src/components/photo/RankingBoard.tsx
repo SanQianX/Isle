@@ -1,7 +1,9 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { PhotoWall } from '@/components/photo/PhotoWall';
+import { Lightbox } from '@/components/lightbox/PhotoLightbox';
 import { VoteControls } from '@/components/photo/VoteControls';
 import { formatRank, formatScore } from '@/lib/format';
 import { toWallPhoto } from '@/lib/wall-photo';
@@ -62,8 +64,33 @@ type Props = {
 };
 
 export function RankingBoard({ placeId, placeName, placeSlug, items: initialItems }: Props) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const photoParam = searchParams.get('photo');
+
   const [items, setItems] = useState<RankingItem[]>(initialItems);
   const [announcement, setAnnouncement] = useState('');
+
+  // The viewer is driven by local state, not by useSearchParams. Closing then
+  // never waits on a server round trip, so the element that opened it is still
+  // in the DOM when focus is handed back. The URL is kept in sync as a side
+  // effect, purely so the link is shareable and Back still closes the viewer.
+  const [openPhotoId, setOpenPhotoId] = useState<string | null>(photoParam);
+
+  // A deep link arriving from outside (paste, shared URL) still opens the
+  // viewer. Values this component wrote itself are ignored: an in-flight
+  // router.push can echo back the photo we just closed, and honouring that
+  // would reopen the viewer the moment the user pressed Escape.
+  const selfWrittenRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (photoParam === null) return;
+    if (selfWrittenRef.current !== null) {
+      if (selfWrittenRef.current === photoParam) return;
+      selfWrittenRef.current = null;
+    }
+    setOpenPhotoId(photoParam);
+  }, [photoParam]);
   // Which vote button currently holds keyboard focus, so it can be restored.
   const focusRef = useRef<string | null>(null);
 
@@ -126,6 +153,39 @@ export function RankingBoard({ placeId, placeName, placeSlug, items: initialItem
 
   const [leader, ...rest] = items;
 
+  const openPhoto = useCallback(
+    (id: string) => {
+      selfWrittenRef.current = id;
+      setOpenPhotoId(id);
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('photo', id);
+      // push, not replace: the browser Back button has to close the viewer
+      // (NAV-03). replace() overwrites the current entry, so Back would leave
+      // the site entirely instead of dismissing the lightbox.
+      router.push(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [pathname, router, searchParams],
+  );
+
+  const closePhoto = useCallback(() => {
+    selfWrittenRef.current = null;
+    setOpenPhotoId(null);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('photo');
+    const query = params.toString();
+    router.replace(query === '' ? pathname : `${pathname}?${query}`, { scroll: false });
+  }, [pathname, router, searchParams]);
+
+  // Popstate: the browser Back button closes the viewer.
+  useEffect(() => {
+    const onPop = () => {
+      selfWrittenRef.current = null;
+      if (new URLSearchParams(window.location.search).get('photo') === null) setOpenPhotoId(null);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
   const wallPhotos = useMemo(() => rest.map(toWallPhoto), [rest]);
 
   if (leader === undefined) {
@@ -153,7 +213,9 @@ export function RankingBoard({ placeId, placeName, placeSlug, items: initialItem
         <button
           className="photo-tap"
           type="button"
+          onClick={() => openPhoto(leader.id)}
           aria-label={`查看第一名照片原图：${leader.title}`}
+          data-testid="ranking-leader-open"
         >
           <div className="photo-media">
             <img
@@ -217,6 +279,7 @@ export function RankingBoard({ placeId, placeName, placeSlug, items: initialItem
 
           <PhotoWall
             photos={wallPhotos}
+            onPhotoOpen={openPhoto}
             renderCaption={(photo) => {
               const full = items.find((item) => item.id === photo.id);
               if (full === undefined) return null;
@@ -253,6 +316,14 @@ export function RankingBoard({ placeId, placeName, placeSlug, items: initialItem
           还没有其他照片。
         </p>
       )}
+
+      <Lightbox
+        items={items}
+        activeId={openPhotoId}
+        onClose={closePhoto}
+        onNavigate={openPhoto}
+        onVoteApplied={handleVote}
+      />
     </div>
   );
 }

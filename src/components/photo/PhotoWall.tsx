@@ -37,9 +37,11 @@ type PhotoWallProps = {
   renderCaption?: (photo: WallPhoto) => React.ReactNode;
   /** Forwarded to the built-in VoteControls, so a live board can re-rank. */
   onVoteApplied?: VoteControlsProps['onVoteApplied'];
+  /** Opens the lightbox for a tile. A plain id, so it stays RSC-safe. */
+  onPhotoOpen?: (photoId: string) => void;
 };
 
-export function PhotoWall({ photos, renderCaption, onVoteApplied }: PhotoWallProps) {
+export function PhotoWall({ photos, renderCaption, onVoteApplied, onPhotoOpen }: PhotoWallProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState<number | null>(null);
 
@@ -109,7 +111,9 @@ export function PhotoWall({ photos, renderCaption, onVoteApplied }: PhotoWallPro
                   <button
                     className="photo-tap"
                     type="button"
+                    onClick={() => onPhotoOpen?.(photo.id)}
                     aria-label={`查看第 ${photo.rank} 名照片原图`}
+                    data-testid={`photo-open-${photo.id}`}
                   >
                     <div className="photo-media">
                       <img

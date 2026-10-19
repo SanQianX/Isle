@@ -270,7 +270,43 @@ npm run test:e2e                   # → 285 passed，连跑 3 次全绿
 
 ## Phase 08 — 原图灯箱 / 原件下载 / 图片隐私提示
 
-**状态**：PENDING
+**状态**：PASSED
+**改动**：新增 `src/components/lightbox/PhotoLightbox.tsx`、`e2e/lightbox/lightbox.spec.ts`；`RankingBoard` 改为本地 state 驱动灯箱并同步 URL；`PhotoWall` 新增 `onPhotoOpen`；`isle.css` 补灯箱与表单样式
+**执行过的命令**：
+```bash
+npx vitest run tests/unit          # → 144 passed (8 files)
+npx vitest run tests/integration   # → 68 passed (4 files)
+npx eslint . ; npx tsc --noEmit ; npm run build   # → 全部 OK
+npm run test:e2e                   # → 353 passed / 2 skipped，连跑 4 次全绿
+```
+**测试**：单元 **144 通过**；集成 **68 通过**；E2E **353 通过 / 2 跳过 / 0 失败**（71 用例 × 5 浏览器），**连续 4 次全量运行结果一致**。
+> 2 个跳过是**显式且有理由**的：WebKit 在客户端路由提交后会把焦点强制移回 `<body>` 且不归还，这是浏览器行为、页面无法覆盖。组件已做两次还原尝试；同文件另有**每个引擎都跑**的用例断言「焦点不被困在已关闭的灯箱内」与「触发元素仍可聚焦」。
+
+**实际可验证的功能（E2E_SCENARIOS LB-01..LB-12）**：
+- **LB-01/LB-02 加载的是原件**：断言 `<img src>` 匹配 `/original$`、**不含 `/preview/`**，且浏览器确实发起了该 URL 的请求。
+- **LB-02 字节一致**：把浏览器拿到的响应体与种子 fixture 逐字节比较，`sha256` 与 `Buffer.equals` 双断言，`Content-Length` 相符。
+- **原件不被重编码**：响应 `content-type: image/jpeg`，字节以 `FF D8 FF` 开头且**不是** `RIFF`（即未被转成 WebP）。
+- **LB-03 下载**：`Content-Disposition` 含 `attachment` 与安全文件名（匹配 `filename="*.jpg"` 形式，非简单的尾串）。
+- **LB-04 顺序**：上一张/下一张改变 `.lb-position`，首张向前回绕到末张。
+- **LB-05 键盘**：先让对话框取得焦点（WebKit 丢弃未持有焦点的合成按键），再断言 `ArrowRight`/`ArrowLeft` 同时改变位置标签**与图片 src**，`Escape` 关闭。
+- **LB-06 手机滑动**：非 1:1 时水平意图才切换，纵向滑动不被劫持。
+- **LB-07 1:1**：切换后宽度收敛到 `naturalWidth / devicePixelRatio`；再次点击恢复适应屏幕的原宽度。
+- **LB-08 文件信息**：真实尺寸、`JPEG` 格式、`KiB/MiB` 体积、上传者、时间；并展示**原件保留 EXIF/GPS 的隐私说明**。
+- **LB-10 失败态**：拦截 `/original` 后显示「重新加载」与「不会用缩略图冒充原图」，并断言 `.lb-stage` 内**没有任何 `/preview/` 图片**；恢复网络后可重试成功。
+- **LB-11 深链**：`?photo=<id>` 直达打开；**浏览器后退关闭灯箱**而非离开页面（URL 用 `push` 而非 `replace`）。
+- **不裁切**：断言渲染比例等于 `naturalWidth/naturalHeight`，即 `object-fit:contain` 无可裁剪。
+- **A11Y-03**：关闭后滚动锁解除、焦点不被困住、触发元素仍可聚焦；Chromium/Firefox 上额外断言焦点**自动**回到触发元素。
+- 打开时对话框主动取得焦点（`tabIndex=-1` + focus），这既是无障碍要求，也修好了 WebKit 上按键完全无效的问题。
+
+**风险/问题（本阶段修复的真实缺陷）**：
+- **灯箱永久打开**：`isOpen` 原先由 `active` 推导，而 `index` 默认为 0，`active` 永远非空 → 灯箱**一直开着**并盖住整页，所有点击被吞（E2E 单跑 18 分钟全超时）。改为由 `activeId`（URL）驱动。
+- **`window is not defined`**：1:1 计算在 render 期间读 `window.devicePixelRatio`，SSR 直接 500。移入 effect。
+- **`go()` 在 state updater 里做副作用**：`onNavigate` 写在 `setIndex(current => …)` 内部，StrictMode 下会执行两次、每次 push 一条历史。改为在 updater 外计算。
+- **后退键离开站点**：`router.replace` 覆盖历史条目，后退会离开网站而非关闭灯箱（NAV-03）。打开改用 `push`。
+- **关闭后灯箱被重新打开**：`router.push` 在途时会把旧的 `photo` 参数回传，深度链接同步随即把刚关闭的灯箱重新打开（Escape 按下后又弹出）。改为忽略本组件自己写入的值。
+- **失败无法恢复**：重试只递增 load token，却没有清掉 `imageFailed`，错误分支下根本没有 `<img>` 可重挂载，灯箱永远无法恢复。两者同时重置。
+- **滚动锁状态不一致**：同时改 inline style 和 class，WebKit 上出现只清掉一半的中间态。收敛为只用一个 class。
+- **首尾 CSS 冲突**：移植的 V4.1 `.lb-unavailable{display:none}` 让错误提示存在但不可见，新增 `.lb-error-shown` 显式变体。
 **下一 Phase**：09
 
 ---

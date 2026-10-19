@@ -112,3 +112,15 @@ header.site-header{position:relative;z-index:3;background:var(--hero);border-bot
 .place-feature>*,.rank-feature>*,.photo-row>*,.form-layout>*{min-width:0}
 .feature-image img,.photo-media img,.hero-photo-frame img{max-width:100%}
 .photo-grid,.place-feature,.rank-feature,.form-layout{overflow-x:clip}
+
+/* Lightbox additions. The ported V4.1 rules assume an <img> fills the stage;
+   this class makes the fit-versus-1:1 switch explicit. */
+.lb-original{display:block;max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain}
+.lb-stage.zoom .lb-original{max-width:none;max-height:none;cursor:grab}
+.lb-unavailable button{margin-top:14px;color:#c8e5d5;text-decoration:underline;text-underline-offset:4px}
+.lb-detail dl dd{font-variant-numeric:tabular-nums}
+
+/* The prototype's .lb-unavailable is display:none because it was only ever
+   toggled by a JS class. The React version renders it conditionally instead,
+   so it needs an explicit visible state. */
+.lb-unavailable.lb-error-shown{display:flex;flex-direction:column;align-items:center;gap:4px}

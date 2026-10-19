@@ -175,11 +175,13 @@ test('an unknown place slug is a clean 404', async ({ page }) => {
 });
 
 test('a cross-origin write is rejected without creating anything', async ({ page }) => {
-  const before = (await (await page.request.get('/api/places')).json()) as PlacesBody;
+  // Name it uniquely and assert that *this* place is absent. Comparing a total
+  // count races every other worker, which legitimately creates places too.
+  const name = uniquePlaceName();
 
   const response = await page.request.post('/api/places', {
     headers: { Origin: 'https://evil.example.com' },
-    data: { ...PLACE, name: uniquePlaceName() },
+    data: { ...PLACE, name },
   });
 
   expect(response.status()).toBe(403);
@@ -188,5 +190,5 @@ test('a cross-origin write is rejected without creating anything', async ({ page
   );
 
   const after = (await (await page.request.get('/api/places')).json()) as PlacesBody;
-  expect(after.places.length).toBe(before.places.length);
+  expect(after.places.map((place) => place.name)).not.toContain(name);
 });

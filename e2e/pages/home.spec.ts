@@ -42,15 +42,27 @@ test('the home page renders the featured place from the database', async ({ page
 });
 
 test('the home page shows the runner-up photos in the justified wall', async ({ page }) => {
+  // Pinned explicitly: below 760px the wall correctly stacks, and this test
+  // asserts the justified layout specifically.
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/');
 
   const wall = page.getByTestId('photo-wall');
   await expect(wall).toBeVisible();
 
   const cards = wall.locator('.photo-card');
-  // The wall lays out after its first measurement, which happens one frame
-  // after hydration, so poll rather than sampling once.
-  await expect.poll(() => cards.count(), { timeout: 15_000 }).toBeGreaterThan(0);
+  // Tiles exist before the wall has measured itself, and until then they render
+  // in the stacked fallback. Wait for the *justified* layout specifically,
+  // otherwise this test can sample the fallback and pass or fail by accident.
+  await expect
+    .poll(
+      async () => {
+        if ((await cards.count()) === 0) return '';
+        return (await cards.first().getAttribute('style')) ?? '';
+      },
+      { timeout: 15_000 },
+    )
+    .toMatch(/--photo-width/);
   const count = await cards.count();
   expect(count).toBeLessThanOrEqual(3); // ranks 2..4
 
