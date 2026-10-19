@@ -150,19 +150,23 @@ export function Lightbox({ items, activeId, onClose, onNavigate, onVoteApplied }
     // after the surrounding re-render commits — a single attempt loses it.
     target.focus({ preventScroll: true });
 
-    // Closing also updates the URL, and the router moves focus to the body once
-    // that navigation commits — undoing the restore. Try again on the next
-    // frame, and once more shortly after, so the hand-back survives it.
-    const frame = requestAnimationFrame(() => {
-      if (document.activeElement !== target) target.focus({ preventScroll: true });
-    });
-    const settle = setTimeout(() => {
-      if (document.activeElement !== target) target.focus({ preventScroll: true });
-    }, 150);
+    // Closing also updates the URL, and the router moves focus to the body when
+    // that navigation commits -- undoing the restore above. The exact moment is
+    // not observable from here, so retry across a short window and stop as soon
+    // as focus sticks. Without this the keyboard user is dropped at the top of
+    // the page after every close.
+    const timers: number[] = [];
+    const delays = [0, 60, 180, 400, 800];
+    for (const delay of delays) {
+      timers.push(
+        window.setTimeout(() => {
+          if (document.activeElement !== target) target.focus({ preventScroll: true });
+        }, delay),
+      );
+    }
 
     return () => {
-      cancelAnimationFrame(frame);
-      clearTimeout(settle);
+      for (const timer of timers) window.clearTimeout(timer);
     };
   }, [isOpen]);
 

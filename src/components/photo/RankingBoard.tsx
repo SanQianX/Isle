@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { PhotoWall } from '@/components/photo/PhotoWall';
 import { Lightbox } from '@/components/lightbox/PhotoLightbox';
 import { VoteControls } from '@/components/photo/VoteControls';
@@ -64,8 +64,6 @@ type Props = {
 };
 
 export function RankingBoard({ placeId, placeName, placeSlug, items: initialItems }: Props) {
-  const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
   const photoParam = searchParams.get('photo');
 
@@ -153,18 +151,30 @@ export function RankingBoard({ placeId, placeName, placeSlug, items: initialItem
 
   const [leader, ...rest] = items;
 
+  const urlWithPhoto = useCallback((id: string) => {
+    const params = new URLSearchParams(window.location.search);
+    params.set('photo', id);
+    const query = params.toString();
+    return `${window.location.pathname}${query === '' ? '' : `?${query}`}`;
+  }, []);
+
+  /**
+   * Open the viewer.
+   *
+   * Uses the History API rather than the router. Routing every viewer change
+   * through Next triggered an RSC refetch, and the test suite's rapid clicks
+   * then raced that refetch -- arrows could land twice, and Back could walk
+   * past the page entirely. A pushState is instant and has no render to wait
+   * for; the viewer is already driven by local state.
+   */
   const openPhoto = useCallback(
     (id: string) => {
       selfWrittenRef.current = id;
       setOpenPhotoId(id);
-      const params = new URLSearchParams(searchParams.toString());
-      params.set('photo', id);
-      // push, not replace: the browser Back button has to close the viewer
-      // (NAV-03). replace() overwrites the current entry, so Back would leave
-      // the site entirely instead of dismissing the lightbox.
-      router.push(`${pathname}?${params.toString()}`, { scroll: false });
+      // push, not replace: Back must close the viewer (NAV-03).
+      window.history.pushState({ photo: id }, '', urlWithPhoto(id));
     },
-    [pathname, router, searchParams],
+    [urlWithPhoto],
   );
 
   /**
@@ -176,27 +186,31 @@ export function RankingBoard({ placeId, placeName, placeSlug, items: initialItem
     (id: string) => {
       selfWrittenRef.current = id;
       setOpenPhotoId(id);
-      const params = new URLSearchParams(searchParams.toString());
-      params.set('photo', id);
-      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+      // replace: Back should close the viewer, not retrace the photos in it.
+      window.history.replaceState({ photo: id }, '', urlWithPhoto(id));
     },
-    [pathname, router, searchParams],
+    [urlWithPhoto],
   );
 
   const closePhoto = useCallback(() => {
     selfWrittenRef.current = null;
     setOpenPhotoId(null);
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(window.location.search);
     params.delete('photo');
     const query = params.toString();
-    router.replace(query === '' ? pathname : `${pathname}?${query}`, { scroll: false });
-  }, [pathname, router, searchParams]);
+    window.history.replaceState(
+      {},
+      '',
+      `${window.location.pathname}${query === '' ? '' : `?${query}`}`,
+    );
+  }, []);
 
   // Popstate: the browser Back button closes the viewer.
   useEffect(() => {
     const onPop = () => {
       selfWrittenRef.current = null;
-      if (new URLSearchParams(window.location.search).get('photo') === null) setOpenPhotoId(null);
+      const fromUrl = new URLSearchParams(window.location.search).get('photo');
+      setOpenPhotoId(fromUrl);
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
