@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { ApiError } from '@/lib/errors';
@@ -134,12 +135,10 @@ export async function getPlaceById(id: string): Promise<PlaceDetail | null> {
   return place === null ? null : toDetail(place);
 }
 
-function isUniqueConstraintError(error: unknown, field: 'normalizedName' | 'slug'): boolean {
-  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
-  if (error.code !== 'P2002') return false;
-  const target = error.meta?.target;
-  const text = Array.isArray(target) ? target.join(',') : String(target ?? '');
-  return text.includes(field);
+/** True for any unique-constraint violation; see the call site for why the
+ * field Prisma reports is deliberately not inspected. */
+function isUniqueConstraintError(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 }
 
 /**
@@ -176,40 +175,75 @@ export async function createPlace(input: CreatePlaceInput): Promise<PlaceDetail>
   const slugSeed = `${normalizedName}|${Date.now()}|${Math.random()}`;
   const slug = buildPlaceSlug(name, slugSeed);
 
+  const insert = async (candidateSlug: string) =>
+    toDetail(
+      await prisma.place.create({
+        data: {
+          name,
+          slug: candidateSlug,
+          normalizedName,
+          region,
+          description: input.description.trim(),
+        },
+        include: placeInclude,
+      }),
+    );
+
+  /**
+   * Find the place that won a race, if there is one.
+   *
+   * Polls briefly: when two requests create the same name at once, the loser
+   * can hit the unique constraint before the winner's transaction is visible.
+   * A single lookup would miss it and report a meaningless internal error.
+   */
+  const findWinner = async (): Promise<{ id: string; slug: string } | null> => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const found = await prisma.place.findUnique({
+        where: { normalizedName },
+        select: { id: true, slug: true },
+      });
+      if (found !== null) return found;
+      await new Promise((resolve) => setTimeout(resolve, 40 * (attempt + 1)));
+    }
+    return null;
+  };
+
+  const conflict = async (): Promise<ApiError> => {
+    // SQLite reports a single field for P2002 -- whichever index it checked
+    // first -- so the reported name cannot be trusted to say which constraint
+    // fired. Ask the database which one it was.
+    const winner = await findWinner();
+    if (winner !== null) {
+      return ApiError.duplicatePlace(`「${name}」已经存在`, {
+        existingPlaceId: winner.id,
+        slug: winner.slug,
+      });
+    }
+    // A genuine storage problem, surfaced as retryable rather than as a 500 the
+    // caller can do nothing about.
+    return new ApiError('STORAGE_UNAVAILABLE', '暂时无法保存这个地点，请稍后再试');
+  };
+
   try {
-    const place = await prisma.place.create({
-      data: { name, slug, normalizedName, region, description: input.description.trim() },
-      include: placeInclude,
-    });
-    return toDetail(place);
+    return await insert(slug);
   } catch (error) {
-    if (isUniqueConstraintError(error, 'normalizedName')) {
-      throw ApiError.duplicatePlace(`「${name}」已经存在`, { reason: 'normalizedName' });
+    if (!isUniqueConstraintError(error)) throw error;
+
+    // No row carries this name, so the slug collided -- and it collided with a
+    // *different* place. That is possible because a name whose only ASCII is
+    // digits slugifies to those digits, so "A 123" and "B 123" both want
+    // "123".
+    //
+    // An empty name forces the opaque branch, because buildPlaceSlug ignores
+    // its seed while ASCII characters remain. Passing the name again would
+    // deterministically reproduce the slug that just collided.
+    const retrySlug = buildPlaceSlug('', `${slugSeed}|retry|${randomBytes(8).toString('hex')}`);
+    try {
+      return await insert(retrySlug);
+    } catch (retryError) {
+      if (isUniqueConstraintError(retryError)) throw await conflict();
+      throw retryError;
     }
-    if (isUniqueConstraintError(error, 'slug')) {
-      // Astronomically unlikely with 32 bits of entropy plus the name; retry
-      // once with fresh randomness rather than surfacing a 500.
-      const retrySlug = buildPlaceSlug(name, `${slugSeed}|retry`);
-      try {
-        const place = await prisma.place.create({
-          data: {
-            name,
-            slug: retrySlug,
-            normalizedName,
-            region,
-            description: input.description.trim(),
-          },
-          include: placeInclude,
-        });
-        return toDetail(place);
-      } catch (retryError) {
-        if (isUniqueConstraintError(retryError, 'normalizedName')) {
-          throw ApiError.duplicatePlace(`「${name}」已经存在`, { reason: 'normalizedName' });
-        }
-        throw retryError;
-      }
-    }
-    throw error;
   }
 }
 

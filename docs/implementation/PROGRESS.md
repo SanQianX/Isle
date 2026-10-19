@@ -321,3 +321,40 @@ npm run test:e2e                   # → 353 passed / 2 skipped，连跑 4 次�
 
 
 
+
+---
+
+## Phase 10 — 全栈测试、无障碍、视觉回归
+
+**状态**：PASSED（性能与故障注入的剩余项并入 Phase 11/12 的 staging 演练说明）
+**改动**：新增 `e2e/a11y/accessibility.spec.ts`、`e2e/visual/visual.spec.ts`、`e2e/support.ts`（`pressUntilSettled` / `waitForHydration`）、`src/components/shell/HydrationMarker.tsx`、`src/app/not-found.tsx`、`src/app/error.tsx`；`run-e2e-isolated.mjs` 增加 `--visual`；调色板与三个控件的无障碍修正
+**执行过的命令**：
+```bash
+npx vitest run tests/unit          # → 144 passed (8 files)
+npx vitest run tests/integration   # → 68 passed (4 files)
+npx eslint . ; npx tsc --noEmit ; npm run build ; npx prettier --check   # → 全部 OK
+npm run test:e2e                   # → 478 passed / 57 skipped，连跑 2 次一致
+npm run test:visual                # → 55 passed（11 个基线 × 5 浏览器），连跑 2 次一致
+npm audit --omit=dev               # → found 0 vulnerabilities
+```
+**测试**：单元 **144 通过**；集成 **68 通过**；E2E 常规 **478 通过 / 0 失败**；E2E 视觉 **55 通过 / 0 失败**。
+> 跳过项分两类，均**显式说明**：55 个视觉用例只在 `npm run test:visual` 里跑（见下）；2 个 WebKit 焦点断言已在 Phase 08 记录平台限制。
+
+**实际可验证的功能**：
+- **无障碍（axe-core，WCAG 2.2 AA）**：首页、地点列表、榜单、上传页、灯箱五个页面各跑一次扫描，**critical / serious = 0**。另有独立用例：每张 `<img>` 都有非文件名 alt 与显式宽高、每个交互控件都有可访问名、投票按钮 `aria-pressed` 正确、聚焦时有可见轮廓、Tab 能真正移动焦点。
+- **视觉回归 VR-01..VR-12**：11 张基线 × 5 个浏览器项目，全部生成且连续 2 次运行无 diff。覆盖首页 Hero、地点列表、横竖方混合摄影墙、完整榜单、灯箱、上传页、手机首页、手机榜单、冷雾灰背景、空地点、上传失败态。
+- **404 与错误边界**：未知路由、未知地点 slug 渲染同一套 404 页面；`error.tsx` 只显示中文说明与「重新加载」，异常详情只进服务端日志。
+
+**本阶段修复的真实缺陷**：
+- **V4.1 的 muted 色不达 AA**：实测 `#71817a` 在 `#f8f9f6` 上仅 **3.88:1**，暗化为 `#586660` / `#525f5c` 后在其出现的**每一种**背景上都 ≥4.5:1。
+- **空状态颜色仅 3.65:1**：`#72817b` 硬编码在移植的样式表里，而这正是新访客上传第一张之前看到的界面。
+- **三个控件的无障碍名不含可见文字**：品牌链接、上传移除按钮、拖拽区、地点封面链接，全部按 label-in-name 规则修正（去掉 aria-label 或把名称移入相邻文字）。
+- **slug 冲突导致 500**：名字里含数字时 `buildPlaceSlug` 会产出裸数字 slug（"A 123" 和 "B 123" 都想要 "123"），且重试路径因为仍传入原名而**确定性地**再次生成同一个 slug。修复：slug 需至少含一个字母，否则回退不透明形式；冲突重试强制走不透明分支。
+- **并发同名创建**：SQLite 的 P2002 只报告**一个**字段（先检查到的索引），原先按字段名分类会误判；改为回查数据库判断赢家，并**轮询**（输家可能在赢家事务可见前就已撞约束）；仍失败时返回 **503 可重试**而非 500。
+- **视觉基线不可复现**：全量 E2E 会让五个浏览器项目在**同一个库**上跑几百个用例，地点数、照片数、票数不断变化，截图永远对不上自己的基线。改为视觉回归**只在独立调用中运行**，并把页头随机访客码 `访客 #xxxxxx` 打码——不这样每次运行都不同。
+- **截图竞态**：等待「所有图片解码完成」会在懒加载图片上永久挂起；改为只等视口内的图片。VR-12 的预览是文本文件、永远无法解码，因此该用例不等待图片。
+
+**风险**：
+- 视觉基线在本地生成于 **Windows**，权威基线仍需 **Linux CI** 生成（ADR-007）。本地基线目录 `e2e/__screenshots__/local/` 已 gitignore，不进仓库。
+- Lighthouse 性能基线与断网/磁盘满故障注入未实机执行，登记为 Phase 11/12 的 staging 项。
+**下一 Phase**：11

@@ -28,7 +28,7 @@
     "test:e2e:chromium": "node scripts/run-e2e-isolated.mjs --project=chromium",
     "test:e2e:firefox": "node scripts/run-e2e-isolated.mjs --project=firefox",
     "test:e2e:webkit": "node scripts/run-e2e-isolated.mjs --project=webkit",
-    "test:visual": "node scripts/run-e2e-isolated.mjs --grep=@visual",
+    "test:visual": "node scripts/run-e2e-isolated.mjs --visual --grep=@visual",
     "test:a11y": "node scripts/run-e2e-isolated.mjs --grep=@a11y",
     "check:all": "npm run lint && npm run typecheck && npm run test:unit && npm run test:integration && npm run build && npm run test:e2e && npm run test:visual"
   },

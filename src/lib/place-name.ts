@@ -95,7 +95,10 @@ export function buildPlaceSlug(name: string, seed?: string): string {
     .replace(NON_SLUG_CHARS, '-')
     .replace(EDGE_HYPHENS, '');
 
-  if (ascii.length >= 2) {
+  // Require a letter, not just length. A name whose only ASCII is digits (say
+  // "A 123") would otherwise slugify to the bare string "123": a poor URL, and
+  // a collision waiting to happen against any other name sharing those digits.
+  if (ascii.length >= 2 && /[a-z]/.test(ascii)) {
     return ascii.slice(0, MAX_SLUG_LENGTH).replace(TRAILING_HYPHENS, '');
   }
 

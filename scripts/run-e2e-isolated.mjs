@@ -38,7 +38,10 @@ const TEMP_ROOT = fs.realpathSync(os.tmpdir());
 
 const argv = process.argv.slice(2);
 const keepArtifacts = argv.includes('--keep-temp') || process.env.ISLE_E2E_KEEP === '1';
-const forwarded = argv.filter((arg) => arg !== '--keep-temp');
+const forwarded = argv.filter((arg) => arg !== '--keep-temp' && arg !== '--visual');
+
+// Visual regression needs a dataset nobody else mutates.
+const isVisualRun = process.env.ISLE_VISUAL === '1' || argv.includes('--visual');
 
 function fail(message) {
   console.error(`\n[run-e2e-isolated] ABORT: ${message}\n`);
@@ -122,6 +125,7 @@ const env = {
   HOSTNAME: '127.0.0.1',
   E2E_BASE_URL: baseUrl,
   NEXT_TELEMETRY_DISABLED: '1',
+  ISLE_VISUAL: isVisualRun ? '1' : '0',
 };
 
 for (const [key, value] of Object.entries(env)) {
