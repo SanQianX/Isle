@@ -34,10 +34,24 @@ export default function GlobalError({
     >
       <div>
         <p className="topline">SOMETHING WENT WRONG</p>
-        <h1 style={{ fontSize: 'clamp(2rem, 6vw, 3.5rem)', fontWeight: 580, letterSpacing: '-0.07em', margin: '18px 0 14px' }}>
+        <h1
+          style={{
+            fontSize: 'clamp(2rem, 6vw, 3.5rem)',
+            fontWeight: 580,
+            letterSpacing: '-0.07em',
+            margin: '18px 0 14px',
+          }}
+        >
           出了点问题
         </h1>
-        <p style={{ color: 'var(--muted)', fontSize: '0.875rem', lineHeight: 1.9, margin: '0 0 28px' }}>
+        <p
+          style={{
+            color: 'var(--muted)',
+            fontSize: '0.875rem',
+            lineHeight: 1.9,
+            margin: '0 0 28px',
+          }}
+        >
           这一页没能正常打开。刷新一次通常就好了。
         </p>
         <div style={{ display: 'flex', gap: '18px', justifyContent: 'center', flexWrap: 'wrap' }}>
