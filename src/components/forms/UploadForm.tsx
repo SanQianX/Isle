@@ -17,6 +17,9 @@ import { formatBytes } from '@/lib/format';
  * exposed. It has to be seen and accepted before anything is sent.
  */
 
+/** Extensions the product accepts, used when the browser does not supply a MIME type. */
+const ALLOWED_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp']);
+
 export type UploadLimits = {
   maxUploadBytes: number;
   maxUploadFiles: number;
@@ -60,13 +63,34 @@ export function UploadForm({
     setRows((current) => current.map((row) => (row.key === key ? { ...row, ...changes } : row)));
   }, []);
 
-  /** Pre-flight: reject obvious problems before spending an upload. */
+  /**
+   * Pre-flight: reject obvious problems before spending an upload.
+   *
+   * The browser's `file.type` is a *hint*, not a fact. WebKit leaves it empty
+   * for `.webp` files, and some platforms omit it entirely. Rejecting on that
+   * basis would lock Safari users out of a format the server handles perfectly
+   * -- so an empty type falls back to the extension, and only a file whose type
+   * AND extension are both unrecognised is refused.
+   *
+   * The server still verifies the real bytes; this check is only an early
+   * warning, and being wrong in the permissive direction costs one round trip
+   * while being wrong in the strict direction costs the upload entirely.
+   */
   const validateFile = useCallback(
     (file: File): string | null => {
       const allowed = ['image/jpeg', 'image/png', 'image/webp'];
-      if (!allowed.includes(file.type)) {
-        return `不支持的格式：${file.type || '未知'}。仅支持 JPEG / PNG / WebP`;
+
+      if (file.type !== '' && !allowed.includes(file.type)) {
+        return `不支持的格式：${file.type}。仅支持 JPEG / PNG / WebP`;
       }
+
+      if (file.type === '') {
+        const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
+        if (!ALLOWED_EXTENSIONS.has(extension)) {
+          return `无法识别文件类型：${file.name}。仅支持 JPEG / PNG / WebP`;
+        }
+      }
+
       if (file.size > limits.maxUploadBytes) {
         return `文件 ${formatBytes(file.size)} 超过单张 ${formatBytes(limits.maxUploadBytes)} 限制`;
       }

@@ -109,6 +109,14 @@ export function assertDeclaredTypeMatches(
   actual: AllowedImageMime,
 ): void {
   if (declared === undefined || declared === '') return;
+
+  // A generic type carries no information about the content. Browsers send it
+  // when they do not know the format themselves -- WebKit does exactly this for
+  // .webp uploads, whose File.type is empty. Treating that as a contradiction
+  // would reject a perfectly good photo, so it is accepted and the magic bytes
+  // stay authoritative.
+  if (declared === 'application/octet-stream') return;
+
   // Browsers may send the legacy `image/jpg` spelling.
   const normalized = declared === 'image/jpg' ? 'image/jpeg' : declared;
   if (normalized === actual) return;

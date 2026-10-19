@@ -199,7 +199,9 @@ test('页面加载期间没有任何失败的网络请求', async ({ page }) => 
     //
     // 只放行「被取消」这一种：同一个 URL 以 404 / 500 / DNS 失败告终，依然算失败。
     // 否则这条断言就变成了一个把所有网络错误都放行的洞。
-    const CANCELLED = ['net::ERR_ABORTED', 'NS_BINDING_ABORTED'];
+    // 三种拼写，同一件事：WebKit 用 "Load request cancelled"，
+    // Gecko 用 NS_BINDING_ABORTED，Blink 用 net::ERR_ABORTED。
+    const CANCELLED = ['net::ERR_ABORTED', 'NS_BINDING_ABORTED', 'Load request cancelled'];
     const real = failures.filter(
       (failure) => !CANCELLED.some((code) => failure.reason.includes(code)),
     );
