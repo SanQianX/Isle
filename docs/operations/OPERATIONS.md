@@ -105,9 +105,16 @@ sudo du -sh /var/backups/isle
 sudo /opt/isle/current/scripts/backup.sh
 ```
 
-做三件事：`sqlite3 .backup` 取**一致性**快照（不是 `cp` 一个正在写的 WAL 文件）→ 复制不可变的原件与预览 → 写 `MANIFEST.json`，记录每张原件的字节数与 SHA-256。
+做四件事：
+
+1. **暂停写入**。`POST /api/health?pause-writes=1` 让所有写操作立刻返回 503，读取照常。备份期间新传的照片会让快照出现「有行无文件」，所以这一步不能省——脚本会**验证**暂停真的生效，而不是假定。
+2. 取**一致性**快照：`VACUUM INTO`（经 Node 执行，主机不必装 `sqlite3`）或 `sqlite3 .backup`。都不是 `cp` 一个正在写的 WAL 文件。
+3. 复制不可变的原件与预览。
+4. 写 `MANIFEST.json`，记录每张原件的字节数与 SHA-256。
 
 > 快照与媒体不一致时脚本**以非零码退出**，不会产出一个已知损坏的备份。
+
+**维护模式是进程级的**（单进程部署成立）。多实例部署需要把状态放到进程之外。
 
 ### 恢复演练（每次上线前、以及建议每月一次）
 
@@ -120,6 +127,20 @@ sudo /opt/isle/current/scripts/restore.sh /var/backups/isle/<stamp>.tar.gz /srv/
 ```
 
 `restore.sh` **先校验再安装**。校验失败就不会让任何坏数据上线。
+
+### 数据库丢了，但原件还在
+
+如果数据库没了而媒体目录还在，原件是**可以救回来的**：原件的地址就是它的 SHA-256，所以那一行可以精确重建，而不是靠猜。
+
+```bash
+# 先看有多少孤儿文件
+DATABASE_URL=file:/var/lib/isle/db/isle.db   node /opt/isle/current/scripts/reconcile-storage.mjs --media-root /var/lib/isle/media
+
+# 逐张登记成真正的照片（--place 指定归属地点）
+DATABASE_URL=file:/var/lib/isle/db/isle.db   node /opt/isle/current/scripts/reconcile-storage.mjs     --media-root /var/lib/isle/media --adopt --place guishan-island
+```
+
+`--adopt` 会重算文件的 SHA-256 并**核对它与自己所在路径是否一致**：不一致说明文件已损坏，不是孤儿，登记进去等于发布一张「记录的哈希是假的」的照片，所以会被拒绝。两张预览缺一张也不登记——缺预览的照片在榜单上是坏图。
 
 ## 7. 回滚
 
