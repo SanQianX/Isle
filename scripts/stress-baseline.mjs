@@ -106,6 +106,14 @@ const photoRows = await prisma.photo.findMany({ select: { id: true } });
 console.log(`[stress] ${placeIds.length} 个地点、${seeded} 张照片、${VOTERS} 个访客已就绪`);
 
 // --- Start the server ---------------------------------------------------------
+// Next's standalone output deliberately omits .next/static, and the health
+// check now refuses to call a deployment healthy without it -- which is the
+// point. Copy it in, exactly as scripts/start-test-server.mjs does.
+await fs.mkdir(path.join(repoRoot, '.next', 'standalone', '.next'), { recursive: true });
+await fs.cp(path.join(repoRoot, '.next', 'static'), path.join(repoRoot, '.next', 'standalone', '.next', 'static'), {
+  recursive: true,
+});
+
 const { spawn } = await import('node:child_process');
 const server = spawn(process.execPath, [path.join(repoRoot, '.next', 'standalone', 'server.js')], {
   cwd: path.join(repoRoot, '.next', 'standalone'),
@@ -222,6 +230,25 @@ await timed('20 个访客并发上传同一张图（内容寻址复用）', asyn
   );
   const responses = await Promise.all(posts);
   return responses.map((r) => r.status);
+});
+
+// A burst of *different* photographs, which is the real case: every upload
+// needs a full decode and two preview renders, so this is where the server
+// does the most work at once.
+await timed('10 个访客并发上传不同照片', async () => {
+  const posts = Array.from({ length: 10 }, (_, index) => {
+    const fd = new FormData();
+    fd.append('file', new Blob([index % 2 === 0 ? fixture : portrait], { type: 'image/jpeg' }), `p${index}.jpg`);
+    fd.append('idempotencyKey', `burst-${index}-${Math.random()}`);
+    return fetch(`${ORIGIN}/api/places/${targetPlace}/photos`, { method: 'POST', body: fd });
+  });
+  const responses = await Promise.all(posts);
+  const statuses = responses.map((r) => r.status);
+  const failures = statuses.filter((s) => s >= 400);
+  if (failures.length > 0) {
+    console.log(`  !! ${failures.length} 个上传失败：${JSON.stringify(statuses)}`);
+  }
+  return statuses;
 });
 
 await timed('50 个并发读（榜单）', async () => {

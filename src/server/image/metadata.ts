@@ -129,14 +129,44 @@ export async function renderPreview(
   size: number,
   options: { maxPixels: number },
 ): Promise<Buffer> {
-  return sharp(original, { limitInputPixels: options.maxPixels, failOn: 'error' })
-    .rotate() // bake in EXIF orientation so the preview matches what is displayed
-    .resize({
-      width: size,
-      height: size,
-      fit: 'inside',
-      withoutEnlargement: true,
-    })
-    .webp({ quality: 82, effort: 4 })
-    .toBuffer();
+  try {
+    return await sharp(original, { limitInputPixels: options.maxPixels, failOn: 'error' })
+      .rotate() // bake in EXIF orientation so the preview matches what is displayed
+      .resize({
+        width: size,
+        height: size,
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
+      .webp({ quality: 82, effort: 4 })
+      .toBuffer();
+  } catch (error) {
+    // A truncated or otherwise broken photograph can survive the metadata probe
+    // and only fail here, when the pixels are actually decoded. Letting that
+    // escape as a raw sharp error produced a generic "服务器开小差了" instead
+    // of telling the visitor their photograph is damaged -- and whether it
+    // surfaced depended on which browser sent the file, because the decode
+    // failed at a different point on each.
+    //
+    // An out-of-memory failure is a different story: the photograph is fine and
+    // the server was busy. Telling the visitor their picture is broken would
+    // send them off to re-upload a perfectly good file.
+    if (isResourceShortage(error)) {
+      throw ApiError.storageUnavailable('服务器正忙，请稍后再试这一张');
+    }
+    throw ApiError.invalidImage(
+      `图片数据不完整或已损坏：${error instanceof Error ? error.message : '无法解码'}`,
+    );
+  }
+}
+
+/**
+ * True when the failure was a shortage of memory or file handles rather than
+ * bad image data.
+ */
+function isResourceShortage(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  if (code === 'ENOMEM' || code === 'EMFILE' || code === 'ENFILE') return true;
+  const message = error instanceof Error ? error.message : '';
+  return /memory|out of handles|ENOMEM/i.test(message);
 }

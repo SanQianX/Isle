@@ -48,6 +48,22 @@ async function probeDatabase(): Promise<StorageProbe> {
 }
 
 /**
+ * The origin this request arrived on.
+ *
+ * Prefers the Host header, because that is the address a visitor used. Falls
+ * back to the loopback address and the configured port for a request that
+ * carries no host information.
+ */
+function originFor(request: Request): string {
+  const host = request.headers.get('host');
+  if (host !== null && host !== '') {
+    const protocol = request.headers.get('x-forwarded-proto') ?? 'http';
+    return `${protocol}://${host}`;
+  }
+  return `http://127.0.0.1:${process.env.PORT ?? '3000'}`;
+}
+
+/**
  * Verify that the built stylesheet is actually reachable.
  *
  * A release assembled without .next/static still answers every route with 200
@@ -84,7 +100,7 @@ async function probeStaticAssets(baseUrl: string): Promise<StorageProbe> {
  * boolean-ish signals and error codes: never absolute paths, never the database
  * URL, never credentials.
  */
-export async function GET(): Promise<NextResponse> {
+export async function GET(request: Request): Promise<NextResponse> {
   let config;
   try {
     // Re-read from the live environment rather than the module-level cache so a
@@ -106,9 +122,12 @@ export async function GET(): Promise<NextResponse> {
     probeWritableDir(config.originalDir),
     probeWritableDir(config.previewRoot),
     probeWritableDir(config.uploadTmpDir),
-    // Probed against our own origin so the check reflects what a visitor gets,
-    // not just what is on disk.
-    probeStaticAssets(`http://127.0.0.1:${process.env.PORT ?? '3000'}`),
+    // Probed against the origin the caller actually used. Reading PORT from the
+    // environment was wrong: the process may listen on a port PORT does not
+    // name -- a container behind a proxy, or a second instance on the same
+    // host -- and the probe would then hit something else entirely and report
+    // the deployment as broken when it was serving perfectly.
+    probeStaticAssets(originFor(request)),
   ]);
 
   const checks = {
