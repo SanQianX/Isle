@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Page, type Request } from '@playwright/test';
 import { waitForHydration } from '../support';
@@ -197,10 +198,12 @@ test('一次提交 10 张时，同时在途的上传请求不超过服务端下�
   // 这不是凑数：服务端按 idempotencyKey 而不是按内容去重，所以它是一条独立记录，
   // 而内容寻址的原件在磁盘上仍然只有一份（ADR-015）——顺带把这条语义也钉住。
   // 不落进 tests/fixtures 是为了不污染 fixture 清单（photo-upload.spec.ts 会逐个校验其 sha256）。
-  const duplicate = path.join(
-    process.env.TEMP ?? '.',
-    `isle-duplicate-${process.pid}-${Date.now()}.jpg`,
-  );
+  // os.tmpdir(), not process.env.TEMP: TEMP is a Windows variable, and on
+  // Linux it is undefined -- so the path came out relative, the helper below
+  // then treated it as a fixture name and looked for it under tests/fixtures,
+  // where it had never been written. The file did not exist, and the case
+  // failed on every Linux runner.
+  const duplicate = path.join(os.tmpdir(), `isle-duplicate-${process.pid}-${Date.now()}.jpg`);
   await fs.copyFile(path.join(FIXTURES, 'landscape.jpg'), duplicate);
 
   const place = await createPlace(page, '批量并发岛');

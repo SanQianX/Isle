@@ -1,4 +1,5 @@
 import { promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { waitForHydration } from '../support';
@@ -50,8 +51,10 @@ async function acceptExifConsent(page: Page): Promise<void> {
 /** A photograph big enough that the browser reports it in several pieces. */
 async function makeLargePhoto(): Promise<string> {
   const sharp = (await import('sharp')).default;
+  // os.tmpdir(), not process.env.TEMP -- see batch-upload.spec.ts: TEMP is a
+  // Windows variable and is undefined on Linux.
   const file = path.join(
-    process.env.TEMP ?? '.',
+    os.tmpdir(),
     `isle-progress-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.jpg`,
   );
   // Random noise does not compress, so the file is genuinely large.

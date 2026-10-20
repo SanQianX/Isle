@@ -100,7 +100,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [chromium, firefox, webkit, mobile-chrome, mobile-webkit]
+        # `project` is the name of the Playwright project in playwright.config.ts;
+        # `browser` is the browser binary that has to be installed for it. They
+        # are not the same list: "mobile-chrome" is a project that runs the
+        # chromium binary with a phone's device profile, and "mobile-webkit"
+        # runs webkit the same way. Passing the project name to
+        # `playwright install` is an error -- "Invalid installation targets:
+        # 'mobile-chrome'" -- so the two mobile jobs never installed anything.
+        include:
+          - project: chromium
+            browser: chromium
+          - project: firefox
+            browser: firefox
+          - project: webkit
+            browser: webkit
+          - project: mobile-chrome
+            browser: chromium
+          - project: mobile-webkit
+            browser: webkit
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -112,7 +129,7 @@ jobs:
       - run: npm run fixtures:generate
       - run: npm run build
       - name: Install Playwright browser
-        run: npx playwright install --with-deps ${{ matrix.project }}
+        run: npx playwright install --with-deps ${{ matrix.browser }}
       - name: Run E2E
         run: npm run test:e2e -- --project=${{ matrix.project }}
       - uses: actions/upload-artifact@v4

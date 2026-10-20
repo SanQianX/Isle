@@ -1,4 +1,5 @@
 import { promises as fs } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { ORIGIN, waitForHydration } from '../support';
@@ -225,7 +226,9 @@ test('an oversize file is refused in the UI before anything is sent', async ({ p
 
   // Built on the fly: 26 MiB of noise is well over the 25 MiB ceiling and is
   // not something to keep in the repository.
-  const oversize = path.join(process.env.TEMP ?? '.', `isle-oversize-${Date.now()}.jpg`);
+  // os.tmpdir(), not process.env.TEMP -- TEMP is a Windows variable and is
+  // undefined on Linux.
+  const oversize = path.join(os.tmpdir(), `isle-oversize-${Date.now()}.jpg`);
   await fs.writeFile(oversize, Buffer.alloc(26 * 1024 * 1024, 0x41));
 
   let uploadRequested = false;
