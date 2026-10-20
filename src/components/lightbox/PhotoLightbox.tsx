@@ -59,6 +59,28 @@ type Props = {
 /** Below this the natural pixel size is smaller than the viewport. */
 const MAX_FIT_HEIGHT = 620;
 
+/**
+ * Elements a keyboard user can reach with Tab.
+ *
+ * Visibility is checked rather than assumed: the details panel starts
+ * collapsed, and tabbing into a collapsed panel would move focus somewhere the
+ * user cannot see.
+ */
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(', ');
+
+function focusableWithin(root: HTMLElement): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)].filter(
+    (element) => element.getClientRects().length > 0,
+  );
+}
+
 export function Lightbox({ items, activeId, onClose, onNavigate, onVoteApplied }: Props) {
   const [index, setIndex] = useState(() =>
     Math.max(
@@ -198,6 +220,45 @@ export function Lightbox({ items, activeId, onClose, onNavigate, onVoteApplied }
       } else if (event.key === 'ArrowLeft') {
         event.preventDefault();
         go(-1);
+      } else if (event.key === 'Tab') {
+        // The viewer is a modal dialog, so Tab has to cycle within it.
+        //
+        // Without this, Shift+Tab from the first control lands on a button in
+        // the page *behind* the overlay -- a vote button the user cannot see,
+        // on a control that is not part of the dialog they opened. Forward Tab
+        // ran off the end of the document and dropped focus on <body>, from
+        // where the next press landed in the background page as well. The
+        // `aria-modal` attribute promised the rest of the page was inert; the
+        // implementation was not keeping that promise.
+        const dialog = dialogRef.current;
+        if (dialog === null) return;
+
+        const focusable = focusableWithin(dialog);
+        const first = focusable.at(0);
+        const last = focusable.at(-1);
+        if (first === undefined || last === undefined) {
+          // Nothing inside to focus; keep focus on the dialog itself rather
+          // than letting it escape.
+          event.preventDefault();
+          dialog.focus({ preventScroll: true });
+          return;
+        }
+
+        const active = document.activeElement;
+        const activeIndex = active instanceof HTMLElement ? focusable.indexOf(active) : -1;
+
+        if (event.shiftKey) {
+          // -1 means focus is on the dialog itself, which carries
+          // tabindex="-1" and is where focus lands when the viewer opens.
+          // That is before the first control, so it wraps to the last.
+          if (activeIndex <= 0) {
+            event.preventDefault();
+            last.focus({ preventScroll: true });
+          }
+        } else if (activeIndex === -1 || activeIndex === focusable.length - 1) {
+          event.preventDefault();
+          first.focus({ preventScroll: true });
+        }
       }
     };
     document.addEventListener('keydown', onKeyDown);
