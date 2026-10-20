@@ -70,16 +70,25 @@ function originFor(request: Request): string {
  * A release assembled without .next/static still answers every route with 200
  * and renders the site as unstyled HTML -- text overlapping, no layout. Nothing
  * in the logs says so. This check turns that into a visible failure.
+ *
+ * The stylesheet URL is matched loosely, because it has two shapes. A
+ * production build emits a hashed name ("/_next/static/css/a1b2c3.css"); the
+ * dev server serves a stable path with a cache-busting query
+ * ("/_next/static/css/app/layout.css?v=..."). Matching only the first shape
+ * made a perfectly healthy dev server report itself as degraded -- a false
+ * alarm with no cause attached, which is worse than no check at all. What
+ * matters is the same in both: the page references a stylesheet, and that
+ * stylesheet is served, and it is not empty.
  */
 async function probeStaticAssets(baseUrl: string): Promise<StorageProbe> {
   try {
     const response = await fetch(`${baseUrl}/`, { redirect: 'manual' });
     const html = await response.text();
-    const match = /\/_next\/static\/css\/([a-z0-9]+\.css)/.exec(html);
+    const match = /\/_next\/static\/css\/[^"'\s?]+\.css/.exec(html);
     if (match === null) {
       return { ok: false, reason: 'NO_CSS_REFERENCE' };
     }
-    const css = await fetch(`${baseUrl}/_next/static/css/${match[1]}`);
+    const css = await fetch(`${baseUrl}${match[0]}`);
     if (!css.ok) {
       return { ok: false, reason: `CSS_${css.status}` };
     }

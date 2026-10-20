@@ -81,16 +81,32 @@ test('上传时逐图显示进度条，读屏能拿到百分比', async ({ page 
 
   const bar = page.getByRole('progressbar');
   await expect(bar).toBeVisible({ timeout: 60_000 });
-  await expect(bar).toHaveAttribute('aria-valuemin', '0');
-  await expect(bar).toHaveAttribute('aria-valuemax', '100');
 
   // The accessible value and the visible number must be the same number.
-  const shown = await page.locator('[data-testid^="upload-progress-"]').first().innerText();
-  const value = Number(shown.replace('%', '').trim());
+  //
+  // Both are read in one pass through the page, because they are two separate
+  // pieces of DOM and the upload keeps moving between them: reading the label
+  // and then the attribute in two round trips let the value go from 45 to 100
+  // in between, and the test failed on a difference it had itself created.
+  const pair = await page.evaluate(() => {
+    const label = document.querySelector('[data-testid^="upload-progress-"]');
+    const element = document.querySelector('[role="progressbar"]');
+    return {
+      shown: label?.textContent?.trim() ?? '',
+      valueNow: element?.getAttribute('aria-valuenow') ?? null,
+      valueMin: element?.getAttribute('aria-valuemin') ?? null,
+      valueMax: element?.getAttribute('aria-valuemax') ?? null,
+    };
+  });
+
+  expect(pair.valueMin).toBe('0');
+  expect(pair.valueMax).toBe('100');
+
+  const value = Number(pair.shown.replace('%', '').trim());
   expect(Number.isFinite(value)).toBe(true);
   expect(value).toBeGreaterThanOrEqual(0);
   expect(value).toBeLessThanOrEqual(100);
-  await expect(bar).toHaveAttribute('aria-valuenow', String(value));
+  expect(pair.valueNow, '读屏拿到的数值必须与页面上显示的百分比一致').toBe(String(value));
 
   await expect(page.getByTestId('upload-summary')).toContainText('1 张成功', { timeout: 90_000 });
   // 成功之后进度条不再占位。
