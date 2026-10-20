@@ -499,7 +499,7 @@ npm audit --omit=dev                  → found 0 vulnerabilities
 
 ### 五、最终 CI 结果
 
-<https://github.com/SanQianX/Isle/actions/runs/39406503899>（`a7e315a`，Ubuntu 24.04 / Node 22 / npm 10）
+<https://github.com/SanQianX/Isle/actions/runs/39409417084>（`96a510d`，Ubuntu 24.04 / Node 22 / npm 10）
 
 | 作业 | 结果 |
 |---|---|
