@@ -76,6 +76,10 @@ export async function parseSingleFileUpload(
     const fields: Record<string, string> = {};
     let tempPath: string | undefined;
     let settled = false;
+    /** The write stream for the current file part, once one has been opened. */
+    let sinkRef: ReturnType<typeof createWriteStream> | undefined;
+    /** True once busboy has announced a file part. */
+    let sawFilePart = false;
 
     /** Resolves when the file part has been fully written to disk. */
     let fileReady: (() => void) | undefined;
@@ -86,18 +90,45 @@ export async function parseSingleFileUpload(
     // box so TypeScript can see the write in the callback it actually happens in.
     const fileBox: { value: StreamedFile | undefined } = { value: undefined };
 
-    const cleanup = (): void => {
+    /**
+     * Remove the scratch file, closing the descriptor first.
+     *
+     * The order is the whole point. An open file cannot be unlinked on Windows
+     * (EPERM), and on every platform the descriptor is only released once the
+     * last reference to it goes away -- so deleting first and closing later
+     * leaks the descriptor even when the unlink succeeds. Destroying the
+     * stream and waiting for 'close' makes the removal deterministic instead
+     * of a race against the write stream's own teardown.
+     */
+    const cleanup = async (): Promise<void> => {
+      if (sinkRef !== undefined) {
+        const target = sinkRef;
+        const closed = new Promise<void>((resolveClosed) => {
+          if (target.closed) {
+            resolveClosed();
+            return;
+          }
+          target.once('close', () => resolveClosed());
+        });
+        target.destroy();
+        await closed;
+        sinkRef = undefined;
+      }
       if (tempPath !== undefined) {
-        void fs.rm(tempPath, { force: true }).catch(() => undefined);
+        await fs.rm(tempPath, { force: true }).catch(() => undefined);
+        tempPath = undefined;
       }
     };
 
     const fail = (error: unknown): void => {
       if (settled) return;
       settled = true;
-      cleanup();
-      fileReady?.();
-      reject(error instanceof ApiError ? error : ApiError.badRequest('上传内容无法解析'));
+      void cleanup()
+        .catch(() => undefined)
+        .then(() => {
+          fileReady?.();
+          reject(error instanceof ApiError ? error : ApiError.badRequest('上传内容无法解析'));
+        });
     };
 
     let busboy: ReturnType<typeof Busboy>;
@@ -127,6 +158,7 @@ export async function parseSingleFileUpload(
         stream.resume();
         return;
       }
+      sawFilePart = true;
       if (fileBox.value !== undefined) {
         // A second part means the client is not honouring one-photo-per-request.
         stream.resume();
@@ -147,6 +179,9 @@ export async function parseSingleFileUpload(
       options.onFileCreated?.(fileTempPath);
 
       const sink = createWriteStream(fileTempPath, { flags: 'wx', mode: 0o600 });
+      // Registered so the failure path can close the descriptor before the
+      // scratch file is removed.
+      sinkRef = sink;
 
       stream.on('data', (chunk: Buffer) => {
         if (settled) return;
@@ -203,6 +238,13 @@ export async function parseSingleFileUpload(
 
     busboy.on('close', () => {
       if (settled) return;
+      if (!sawFilePart) {
+        // The body carried fields but no file. Waiting for a file part that
+        // will never arrive would hold the request open forever, so refuse
+        // now -- the client sent something we cannot ingest.
+        fail(ApiError.badRequest('没有收到照片文件'));
+        return;
+      }
       // The file part may still be flushing to disk; wait for it before
       // reporting success, otherwise the caller would read a partial file.
       void fileComplete.then(() => {
