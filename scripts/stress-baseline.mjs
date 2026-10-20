@@ -259,6 +259,32 @@ await timed('10 个访客并发上传不同照片', async () => {
   return statuses;
 });
 
+// A sustained burst of uploads, which is where the server holds the most
+// memory at once: each request decodes the photograph and renders two previews.
+await timed('30 个访客并发上传（每批 30 张）', async () => {
+  const posts = [];
+  for (let index = 0; index < 30; index += 1) {
+    const fd = new FormData();
+    fd.append(
+      'file',
+      new Blob([index % 2 === 0 ? fixture : portrait], { type: 'image/jpeg' }),
+      `m${index}.jpg`,
+    );
+    fd.append('idempotencyKey', `mem-${index}-${Math.random()}`);
+    posts.push(
+      fetch(`${ORIGIN}/api/places/${targetPlace}/photos`, { method: 'POST', body: fd }).then(
+        (r) => r.status,
+      ),
+    );
+  }
+  const statuses = await Promise.all(posts);
+  const failed = statuses.filter((s) => s >= 400);
+  if (failed.length > 0) {
+    console.log(`  !! ${failed.length} 个失败：${JSON.stringify(statuses)}`);
+  }
+  return statuses;
+});
+
 await timed('50 个并发读（榜单）', async () => {
   const reads = Array.from({ length: 50 }, () =>
     fetch(`${ORIGIN}/api/places/${targetPlace}/photos?limit=40`),
