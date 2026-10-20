@@ -49,7 +49,14 @@ let counter = 0;
  */
 export function createTestContext(label = 'isle-it'): TestContext {
   counter += 1;
-  const root = assertSafe(path.join(os.tmpdir(), `${label}-${process.pid}-${counter}`));
+  // The random component matters. Process ids are recycled, and the counter
+  // restarts with every process, so without it a new run can land in the
+  // directory a previous run left behind -- and inherit its database, which
+  // shows up later as a unique-constraint failure on data nobody wrote in
+  // this run.
+  const root = assertSafe(
+    path.join(os.tmpdir(), `${label}-${process.pid}-${randomBytes(4).toString('hex')}-${counter}`),
+  );
   const dbDir = path.join(root, 'db');
   const mediaRoot = path.join(root, 'media');
   const uploadTmpDir = path.join(root, 'tmp');

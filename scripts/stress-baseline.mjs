@@ -9,6 +9,7 @@
  * files. Nothing is mocked.
  */
 import { promises as fs } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { PrismaClient } from '@prisma/client';
@@ -20,7 +21,14 @@ const PHOTOS_PER_PLACE = Number(process.env.STRESS_PHOTOS ?? 15);
 const VOTERS = Number(process.env.STRESS_VOTERS ?? 20);
 
 const repoRoot = process.cwd();
-const sandbox = path.join(os.tmpdir(), `isle-stress-${process.pid}`);
+// The sandbox name carries a random component as well as the process id.
+// Process ids are recycled, and a run that lands in a previous run's
+// directory inherits its database -- which is how a fresh run ends up
+// failing on a unique constraint for a visitor the previous run created.
+const sandbox = path.join(
+  os.tmpdir(),
+  `isle-stress-${process.pid}-${randomBytes(4).toString('hex')}`,
+);
 const dbDir = path.join(sandbox, 'db');
 const mediaRoot = path.join(sandbox, 'media');
 const tmpDir = path.join(sandbox, 'tmp');
@@ -143,208 +151,268 @@ const waitForHealth = async () => {
 await waitForHealth();
 
 // --- Measure ------------------------------------------------------------------
-const timed = async (label, fn) => {
-  const start = process.hrtime.bigint();
-  const result = await fn();
-  const ms = Number(process.hrtime.bigint() - start) / 1e6;
-  console.log(`  ${label.padEnd(42)} ${ms.toFixed(0).padStart(6)} ms`);
-  return { ms, result };
-};
-
-console.log('\n=== 读路径 ===');
-const targetPlace = placeIds[0];
-
-await timed('GET /（首页）', async () => {
-  const r = await fetch(`${ORIGIN}/`);
-  return r.status;
-});
-await timed('GET /places（12 个地点）', async () => {
-  const r = await fetch(`${ORIGIN}/places`);
-  return r.status;
-});
-await timed('GET /places/:id/photos（15 张带票）', async () => {
-  const r = await fetch(`${ORIGIN}/api/places/${targetPlace}/photos`);
-  return r.status;
-});
-await timed('GET /places/:id/photos?limit=40', async () => {
-  const r = await fetch(`${ORIGIN}/api/places/${targetPlace}/photos?limit=40`);
-  return r.status;
-});
-await timed('GET /places/:id（详情）', async () => {
-  const r = await fetch(`${ORIGIN}/api/places/${targetPlace}`);
-  return r.status;
-});
-await timed('GET /api/places（列表）', async () => {
-  const r = await fetch(`${ORIGIN}/api/places`);
-  return r.status;
-});
-
-console.log('\n=== 写路径 ===');
-const photoId = photoRows[0].id;
-const voterCookie = (index) => `isle_visitor=stress-voter-${index}-${Date.now()}`;
-
-await timed('20 个访客并发投票（不同照片）', async () => {
-  const votes = voterIds.slice(0, 20).map((_, index) =>
-    fetch(`${ORIGIN}/api/photos/${photoRows[index % photoRows.length].id}/vote`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json', cookie: voterCookie(index) },
-      body: JSON.stringify({ value: 1 }),
-    }),
-  );
-  const responses = await Promise.all(votes);
-  return responses.map((r) => r.status);
-});
-
-await timed('50 个访客并发投票（同一张照片）', async () => {
-  const votes = Array.from({ length: 50 }, (_, index) =>
-    fetch(`${ORIGIN}/api/photos/${photoId}/vote`, {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json', cookie: voterCookie(index) },
-      body: JSON.stringify({ value: index % 3 === 0 ? -1 : 1 }),
-    }),
-  );
-  const responses = await Promise.all(votes);
-  return responses.map((r) => r.status);
-});
-
-await timed('30 个访客并发建地点', async () => {
-  const posts = Array.from({ length: 30 }, (_, index) =>
-    fetch(`${ORIGIN}/api/places`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        name: `并发岛 ${index}-${Date.now()}-${Math.random()}`,
-        region: '测试',
-      }),
-    }),
-  );
-  const responses = await Promise.all(posts);
-  return responses.map((r) => r.status);
-});
-
-await timed('20 个访客并发上传同一张图（内容寻址复用）', async () => {
-  const form = () => {
-    const fd = new FormData();
-    fd.append('file', new Blob([fixture], { type: 'image/jpeg' }), 'same.jpg');
-    fd.append('idempotencyKey', `same-${Math.random()}`);
-    return fd;
+// Wrapped so the teardown below runs even when a measurement throws. A script
+// that dies mid-run leaves its server behind, which is exactly the mess this
+// teardown exists to avoid.
+try {
+  const timed = async (label, fn) => {
+    const start = process.hrtime.bigint();
+    const result = await fn();
+    const ms = Number(process.hrtime.bigint() - start) / 1e6;
+    console.log(`  ${label.padEnd(42)} ${ms.toFixed(0).padStart(6)} ms`);
+    return { ms, result };
   };
-  const posts = Array.from({ length: 20 }, () =>
-    fetch(`${ORIGIN}/api/places/${targetPlace}/photos`, { method: 'POST', body: form() }),
-  );
-  const responses = await Promise.all(posts);
-  return responses.map((r) => r.status);
-});
 
-// A burst of *different* photographs, which is the real case: every upload
-// needs a full decode and two preview renders, so this is where the server
-// does the most work at once.
-await timed('10 个访客并发上传不同照片', async () => {
-  const posts = Array.from({ length: 10 }, (_, index) => {
-    const fd = new FormData();
-    fd.append(
-      'file',
-      new Blob([index % 2 === 0 ? fixture : portrait], { type: 'image/jpeg' }),
-      `p${index}.jpg`,
-    );
-    fd.append('idempotencyKey', `burst-${index}-${Math.random()}`);
-    return fetch(`${ORIGIN}/api/places/${targetPlace}/photos`, { method: 'POST', body: fd });
+  console.log('\n=== 读路径 ===');
+  const targetPlace = placeIds[0];
+
+  await timed('GET /（首页）', async () => {
+    const r = await fetch(`${ORIGIN}/`);
+    return r.status;
   });
-  const responses = await Promise.all(posts);
-  const statuses = responses.map((r) => r.status);
-  const failures = statuses.filter((s) => s >= 400);
-  if (failures.length > 0) {
-    console.log(`  !! ${failures.length} 个上传失败：${JSON.stringify(statuses)}`);
-  }
-  return statuses;
-});
+  await timed('GET /places（12 个地点）', async () => {
+    const r = await fetch(`${ORIGIN}/places`);
+    return r.status;
+  });
+  await timed('GET /places/:id/photos（15 张带票）', async () => {
+    const r = await fetch(`${ORIGIN}/api/places/${targetPlace}/photos`);
+    return r.status;
+  });
+  await timed('GET /places/:id/photos?limit=40', async () => {
+    const r = await fetch(`${ORIGIN}/api/places/${targetPlace}/photos?limit=40`);
+    return r.status;
+  });
+  await timed('GET /places/:id（详情）', async () => {
+    const r = await fetch(`${ORIGIN}/api/places/${targetPlace}`);
+    return r.status;
+  });
+  await timed('GET /api/places（列表）', async () => {
+    const r = await fetch(`${ORIGIN}/api/places`);
+    return r.status;
+  });
 
-// A sustained burst of uploads, which is where the server holds the most
-// memory at once: each request decodes the photograph and renders two previews.
-await timed('30 个访客并发上传（每批 30 张）', async () => {
-  const posts = [];
-  for (let index = 0; index < 30; index += 1) {
-    const fd = new FormData();
-    fd.append(
-      'file',
-      new Blob([index % 2 === 0 ? fixture : portrait], { type: 'image/jpeg' }),
-      `m${index}.jpg`,
+  console.log('\n=== 写路径 ===');
+  const photoId = photoRows[0].id;
+  const voterCookie = (index) => `isle_visitor=stress-voter-${index}-${Date.now()}`;
+
+  await timed('20 个访客并发投票（不同照片）', async () => {
+    const votes = voterIds.slice(0, 20).map((_, index) =>
+      fetch(`${ORIGIN}/api/photos/${photoRows[index % photoRows.length].id}/vote`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', cookie: voterCookie(index) },
+        body: JSON.stringify({ value: 1 }),
+      }),
     );
-    fd.append('idempotencyKey', `mem-${index}-${Math.random()}`);
-    posts.push(
-      fetch(`${ORIGIN}/api/places/${targetPlace}/photos`, { method: 'POST', body: fd }).then(
-        (r) => r.status,
-      ),
+    const responses = await Promise.all(votes);
+    return responses.map((r) => r.status);
+  });
+
+  await timed('50 个访客并发投票（同一张照片）', async () => {
+    const votes = Array.from({ length: 50 }, (_, index) =>
+      fetch(`${ORIGIN}/api/photos/${photoId}/vote`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', cookie: voterCookie(index) },
+        body: JSON.stringify({ value: index % 3 === 0 ? -1 : 1 }),
+      }),
     );
-  }
-  const statuses = await Promise.all(posts);
-  const failed = statuses.filter((s) => s >= 400);
-  if (failed.length > 0) {
-    console.log(`  !! ${failed.length} 个失败：${JSON.stringify(statuses)}`);
-  }
-  return statuses;
-});
+    const responses = await Promise.all(votes);
+    return responses.map((r) => r.status);
+  });
 
-await timed('50 个并发读（榜单）', async () => {
-  const reads = Array.from({ length: 50 }, () =>
-    fetch(`${ORIGIN}/api/places/${targetPlace}/photos?limit=40`),
-  );
-  const responses = await Promise.all(reads);
-  return responses.map((r) => r.status);
-});
+  await timed('30 个访客并发建地点', async () => {
+    const posts = Array.from({ length: 30 }, (_, index) =>
+      fetch(`${ORIGIN}/api/places`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: `并发岛 ${index}-${Date.now()}-${Math.random()}`,
+          region: '测试',
+        }),
+      }),
+    );
+    const responses = await Promise.all(posts);
+    return responses.map((r) => r.status);
+  });
 
-// --- Integrity ---------------------------------------------------------------
-const votes = await prisma.vote.count();
-const photos = await prisma.photo.count();
-const places = await prisma.place.count();
-console.log(`
+  await timed('20 个访客并发上传同一张图（内容寻址复用）', async () => {
+    const form = () => {
+      const fd = new FormData();
+      fd.append('file', new Blob([fixture], { type: 'image/jpeg' }), 'same.jpg');
+      fd.append('idempotencyKey', `same-${Math.random()}`);
+      return fd;
+    };
+    const posts = Array.from({ length: 20 }, () =>
+      fetch(`${ORIGIN}/api/places/${targetPlace}/photos`, { method: 'POST', body: form() }),
+    );
+    const responses = await Promise.all(posts);
+    return responses.map((r) => r.status);
+  });
+
+  // A burst of *different* photographs, which is the real case: every upload
+  // needs a full decode and two preview renders, so this is where the server
+  // does the most work at once.
+  await timed('10 个访客并发上传不同照片', async () => {
+    const posts = Array.from({ length: 10 }, (_, index) => {
+      const fd = new FormData();
+      fd.append(
+        'file',
+        new Blob([index % 2 === 0 ? fixture : portrait], { type: 'image/jpeg' }),
+        `p${index}.jpg`,
+      );
+      fd.append('idempotencyKey', `burst-${index}-${Math.random()}`);
+      return fetch(`${ORIGIN}/api/places/${targetPlace}/photos`, { method: 'POST', body: fd });
+    });
+    const responses = await Promise.all(posts);
+    const statuses = responses.map((r) => r.status);
+    const failures = statuses.filter((s) => s >= 400);
+    if (failures.length > 0) {
+      console.log(`  !! ${failures.length} 个上传失败：${JSON.stringify(statuses)}`);
+    }
+    return statuses;
+  });
+
+  // A sustained burst of uploads, which is where the server holds the most
+  // memory at once: each request decodes the photograph and renders two previews.
+  await timed('30 个访客并发上传（每批 30 张）', async () => {
+    const posts = [];
+    for (let index = 0; index < 30; index += 1) {
+      const fd = new FormData();
+      fd.append(
+        'file',
+        new Blob([index % 2 === 0 ? fixture : portrait], { type: 'image/jpeg' }),
+        `m${index}.jpg`,
+      );
+      fd.append('idempotencyKey', `mem-${index}-${Math.random()}`);
+      posts.push(
+        fetch(`${ORIGIN}/api/places/${targetPlace}/photos`, { method: 'POST', body: fd }).then(
+          (r) => r.status,
+        ),
+      );
+    }
+    const statuses = await Promise.all(posts);
+    const failed = statuses.filter((s) => s >= 400);
+    if (failed.length > 0) {
+      console.log(`  !! ${failed.length} 个失败：${JSON.stringify(statuses)}`);
+    }
+    return statuses;
+  });
+
+  await timed('50 个并发读（榜单）', async () => {
+    const reads = Array.from({ length: 50 }, () =>
+      fetch(`${ORIGIN}/api/places/${targetPlace}/photos?limit=40`),
+    );
+    const responses = await Promise.all(reads);
+    return responses.map((r) => r.status);
+  });
+
+  // --- Integrity ---------------------------------------------------------------
+  const votes = await prisma.vote.count();
+  const photos = await prisma.photo.count();
+  const places = await prisma.place.count();
+  console.log(`
 [stress] 结束时：${places} 地点 / ${photos} 照片 / ${votes} 票`);
 
-// Every photograph must have both previews. A missing one means the ranking
-// page would show a broken tile, and that is the failure the contract forbids.
-const incomplete = await prisma.photo.findMany({
-  where: { OR: [{ preview400Key: null }, { preview1200Key: null }] },
-  select: { id: true, title: true },
-});
-if (incomplete.length > 0) {
-  console.log(`
+  // Every photograph must have both previews. A missing one means the ranking
+  // page would show a broken tile, and that is the failure the contract forbids.
+  const incomplete = await prisma.photo.findMany({
+    where: { OR: [{ preview400Key: null }, { preview1200Key: null }] },
+    select: { id: true, title: true },
+  });
+  if (incomplete.length > 0) {
+    console.log(`
 [stress] !! ${incomplete.length} 张照片缺少预览：${JSON.stringify(incomplete)}`);
-} else {
-  console.log('[stress] 每张照片都有 400 与 1200 两档预览');
-}
-
-// Content-addressed storage: the same bytes legitimately share one original.
-const keyCounts = new Map();
-for (const photo of await prisma.photo.findMany({ select: { originalKey: true } })) {
-  keyCounts.set(photo.originalKey, (keyCounts.get(photo.originalKey) ?? 0) + 1);
-}
-const shared = [...keyCounts.values()].filter((count) => count > 1);
-console.log(`[stress] 共享同一原件的照片：${shared.length} 组（内容寻址存储的正常现象）`);
-
-const errors = serverLog
-  .split('\n')
-  .filter((line) => /⨯|unhandled|Error:/.test(line))
-  .slice(0, 10);
-if (errors.length > 0) {
-  console.log('\n[stress] 服务端错误：');
-  for (const error of errors) console.log(`  ${error}`);
-}
-
-await prisma.$disconnect();
-server.kill('SIGTERM');
-// Wait for the server to actually release the database file. On Windows the
-// file stays locked for a moment after the process exits, and an unlink that
-// races it fails with EBUSY.
-await new Promise((resolve) => {
-  server.once('exit', resolve);
-  setTimeout(resolve, 5000);
-});
-for (let attempt = 0; attempt < 6; attempt += 1) {
-  try {
-    await fs.rm(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
-    break;
-  } catch {
-    await new Promise((resolve) => setTimeout(resolve, 800));
+  } else {
+    console.log('[stress] 每张照片都有 400 与 1200 两档预览');
   }
+
+  // Content-addressed storage: the same bytes legitimately share one original.
+  const keyCounts = new Map();
+  for (const photo of await prisma.photo.findMany({ select: { originalKey: true } })) {
+    keyCounts.set(photo.originalKey, (keyCounts.get(photo.originalKey) ?? 0) + 1);
+  }
+  const shared = [...keyCounts.values()].filter((count) => count > 1);
+  console.log(`[stress] 共享同一原件的照片：${shared.length} 组（内容寻址存储的正常现象）`);
+
+  const errors = serverLog
+    .split('\n')
+    .filter((line) => /⨯|unhandled|Error:/.test(line))
+    .slice(0, 10);
+  if (errors.length > 0) {
+    console.log('\n[stress] 服务端错误：');
+    for (const error of errors) console.log(`  ${error}`);
+  }
+} finally {
+  // The server goes down first, and it goes down for certain.
+  //
+  // A stress run that leaves its server alive holds the SQLite file and the
+  // Prisma query-engine DLL open. The next `prisma generate` then fails with
+  // EPERM, because it cannot replace a DLL that is in use -- and the failure
+  // lands in an unrelated command, which is a confusing way to learn that a
+  // measurement script was untidy. SIGTERM first, SIGKILL if the server is
+  // still standing after five seconds.
+  const exited = new Promise((resolve) => server.once('exit', resolve));
+  server.kill('SIGTERM');
+  const stopped = await Promise.race([
+    exited.then(() => true),
+    new Promise((resolve) => setTimeout(() => resolve(false), 5000)),
+  ]);
+  console.log(`[stress] teardown: server stopped = ${String(stopped)}`);
+  if (!stopped) {
+    server.kill('SIGKILL');
+    await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5000))]);
+    console.log('[stress] teardown: server killed');
+  }
+
+  // The app's own Prisma singleton has to go first.
+  //
+  // The service modules imported above (seedDefaultPlace, ingestPhotoBytes)
+  // reach the database through getPrisma(), which caches a client on
+  // globalThis. That client was never disconnected, and it kept the SQLite
+  // file open -- so the removal below failed with EBUSY on stress.db,
+  // stress.db-wal and stress.db-shm no matter how long the script waited.
+  // Disconnecting the script's own client was never enough: there were two.
+  const { resetPrismaForTests } = await import('../src/server/db/client.ts');
+  await resetPrismaForTests();
+  console.log('[stress] teardown: app prisma client closed');
+
+  // The disconnect is awaited properly, not raced against a timeout.
+  //
+  // It used to be raced with a five-second timer, which was a quiet lie: when
+  // the timer won, the script printed "prisma disconnected" and carried on
+  // while the client was still connected and still holding the database file.
+  // The elapsed time is printed so a slow shutdown is visible rather than
+  // mysterious.
+  const disconnectStart = Date.now();
+  await prisma.$disconnect();
+  console.log(`[stress] teardown: prisma disconnected in ${Date.now() - disconnectStart}ms`);
+
+  // Removing the sandbox is best-effort and bounded.
+  //
+  // It used to pass `maxRetries`/`retryDelay`, which sends Node down its rimraf
+  // retry path: on a locked file it sleeps and then re-scans the whole tree
+  // from the top. With a few hundred files in there that turns a two
+  // millisecond unlink into a crawl -- every run of this script left its
+  // sandbox behind and the script never finished. The retry is now an explicit
+  // loop of single-pass unlinks instead: the server has just exited, so the
+  // database file can still be locked for a moment, and a second attempt a
+  // beat later is enough.
+  let removed = false;
+  for (let attempt = 0; attempt < 5 && !removed; attempt += 1) {
+    removed = await Promise.race([
+      fs.rm(sandbox, { recursive: true, force: true }).then(
+        () => true,
+        (error) => {
+          console.log(
+            `[stress] teardown: rm failed (${error.code ?? 'unknown'}): ${error.message}`,
+          );
+          return false;
+        },
+      ),
+      new Promise((resolve) => setTimeout(() => resolve(false), 10_000)),
+    ]);
+    if (!removed) await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  console.log(
+    removed ? '\n[stress] sandbox cleaned' : `\n[stress] sandbox left behind: ${sandbox}`,
+  );
 }
-console.log('\n[stress] sandbox cleaned');
