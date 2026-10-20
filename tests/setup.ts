@@ -38,6 +38,17 @@ if (process.env.DATABASE_URL) {
   }
 }
 
-if (process.platform !== 'win32' && !tmpDir.startsWith(os.tmpdir()) && !mediaRoot) {
+// On Linux the rule is enforced: a test run that writes into a real
+// deployment path is the one thing this guard exists to prevent.
+//
+// The variable is allowed to be *unset* -- the unit tests do not need it, and
+// the integration tests set it to a fresh temporary directory themselves. An
+// unset variable is not a violation, and treating it as one made every suite
+// fail on Linux before a single assertion ran: the old condition required
+// "the path is not under the temp directory" *and* "MEDIA_ROOT is unset", so
+// with neither variable set -- exactly the case for the unit job -- it fired.
+// The Windows branch never noticed, because the platform check short-circuits
+// it, which is why 156 unit tests passed locally and 0 could even load on CI.
+if (process.platform !== 'win32' && tmpDir !== '' && !tmpDir.startsWith(os.tmpdir())) {
   throw new Error('UPLOAD_TMP_DIR should live under the OS temp directory for tests.');
 }
