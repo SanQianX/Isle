@@ -76,9 +76,22 @@ beforeEach(async () => {
   await pointConfigAt(mediaRoot, uploadTmpDir);
 });
 
+/** 本用例里还封着的目录，失败时也要能解开。 */
+const activeBlocks: Block[] = [];
+
 afterEach(async () => {
   // 无论如何都把配置指回本用例的合法目录，别让故障残留污染下一个用例。
   await pointConfigAt(mediaRoot, uploadTmpDir);
+
+  // A case that failed before its own `restore()` left the directory
+  // read-only. On Linux that also means the sandbox cannot be deleted --
+  // removing a directory's contents needs write permission on the directory
+  // -- so the leftover would survive the whole run and the next case would
+  // start from a dirty tree.
+  while (activeBlocks.length > 0) {
+    const block = activeBlocks.pop();
+    await block?.restore().catch(() => undefined);
+  }
 });
 
 /** getConfig() 是记忆化的，不清缓存的话改 env 不会生效。 */
@@ -100,22 +113,34 @@ async function blockDirectoryWrites(dir: string): Promise<Block> {
     await fs.mkdir(path.dirname(dir), { recursive: true });
     await fs.rm(dir, { recursive: true, force: true });
     await fs.writeFile(dir, 'blocked by storage-failure.test.ts');
-    return {
+    const block: Block = {
       blocker: dir,
       restore: async () => {
         await fs.rm(dir, { force: true });
         await fs.mkdir(dir, { recursive: true });
       },
     };
+    activeBlocks.push(block);
+    return block;
   }
+  // The directory has to exist before its mode can be changed, and it usually
+  // does not: the application creates the media subdirectories lazily, on the
+  // first write. The Windows branch does not care -- it replaces the path with
+  // a file, which works whether or not the directory was there -- so the POSIX
+  // branch used to die with ENOENT on `stat` the moment it ran on Linux. The
+  // product behaviour under test is unchanged: the write into this directory
+  // is what has to fail.
+  await fs.mkdir(dir, { recursive: true });
   const previous = (await fs.stat(dir)).mode & 0o777;
   await fs.chmod(dir, 0o500);
-  return {
+  const block: Block = {
     blocker: dir,
     restore: async () => {
       await fs.chmod(dir, previous);
     },
   };
+  activeBlocks.push(block);
+  return block;
 }
 
 /** 这个位置现在还能不能写入。用来证明封堵手法在本平台上真的生效。 */
@@ -326,15 +351,24 @@ describe('磁盘写失败不会留下半成品，且可恢复', () => {
     await fs.rm(blocker, { force: true });
   });
 
-  it('MEDIA_ROOT 指向不存在的盘符时拒绝上传', async () => {
+  it('MEDIA_ROOT 指向一个建不出来的位置时拒绝上传', async () => {
     const bytes = await uniqueJpeg();
     const visitorId = await makeVisitor();
 
     // 挂载点掉了 / 盘符没插上：连递归 mkdir 都建不出来。
+    //
+    // Windows 的形态是「盘符不存在」；POSIX 没有盘符，所以形态是「父路径是
+    // 一个普通文件」——mkdir 撞上 ENOTDIR，同样是「这个位置永远建不出来」。
+    // 之前 POSIX 用的是 /proc/isle-media-absent：在 Linux 上那个路径的
+    // mkdir 行为依赖 procfs 的实现，结果这个用例在 CI 上是**超时**而不是失败，
+    // 20 秒什么也没证明。用一个只依赖「父路径是文件」的位置，行为在任何
+    // Linux 上都是确定的。
+    const absentParent = path.join(context.root, `absent-parent-${randomBytes(4).toString('hex')}`);
+    await fs.writeFile(absentParent, 'this is a file, so nothing can be created under it');
     const absent =
-      process.platform === 'win32' ? 'Q:\\isle-media-absent' : '/proc/isle-media-absent';
+      process.platform === 'win32' ? 'Q:\\isle-media-absent' : path.join(absentParent, 'media');
     await pointConfigAt(absent, uploadTmpDir);
-    await expectBlocked(absent, '不存在的盘符');
+    await expectBlocked(absent, '建不出来的位置');
 
     const attempt = await attemptUpload(bytes, visitorId, 'absent-volume');
     expect(attempt.ok).toBe(false);
@@ -348,6 +382,7 @@ describe('磁盘写失败不会留下半成品，且可恢复', () => {
     const retry = await attemptUpload(bytes, visitorId, 'absent-volume-restored');
     expect(retry.ok).toBe(true);
     await expectUploadRecovered(retry.photoId!, bytes);
+    await fs.rm(absentParent, { force: true });
   });
 
   it('原件已落盘后预览写失败，必须把原件一起回滚（写盘中断）', async () => {

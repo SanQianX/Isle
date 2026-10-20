@@ -62,8 +62,17 @@ describe('config validation', () => {
     );
   });
 
-  it('accepts a Windows absolute sqlite path', () => {
-    const config = loadConfig(env({ DATABASE_URL: 'file:D:/isle/db/isle.db' }));
+  it('accepts an absolute sqlite path', () => {
+    // The spelling that is absolute is the spelling of the machine that will
+    // use it. "file:D:/..." is absolute on Windows and *relative* on Linux,
+    // where it would put the database inside the release directory -- and the
+    // check uses the host's own rules (path.isAbsolute), so the product is
+    // right to refuse it there. Asserting the Windows form on every platform
+    // asserted a path the product is right to reject, which is why this case
+    // failed on CI while passing on the developer's machine.
+    const absolute =
+      process.platform === 'win32' ? 'file:D:/isle/db/isle.db' : 'file:/var/lib/isle/db/isle.db';
+    const config = loadConfig(env({ DATABASE_URL: absolute }));
     expect(path.isAbsolute(config.databaseFile)).toBe(true);
     expect(config.databaseFile).toMatch(/isle[\\/]db[\\/]isle\.db$/);
   });
