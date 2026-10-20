@@ -271,7 +271,29 @@ await timed('50 个并发读（榜单）', async () => {
 const votes = await prisma.vote.count();
 const photos = await prisma.photo.count();
 const places = await prisma.place.count();
-console.log(`\n[stress] 结束时：${places} 地点 / ${photos} 照片 / ${votes} 票`);
+console.log(`
+[stress] 结束时：${places} 地点 / ${photos} 照片 / ${votes} 票`);
+
+// Every photograph must have both previews. A missing one means the ranking
+// page would show a broken tile, and that is the failure the contract forbids.
+const incomplete = await prisma.photo.findMany({
+  where: { OR: [{ preview400Key: null }, { preview1200Key: null }] },
+  select: { id: true, title: true },
+});
+if (incomplete.length > 0) {
+  console.log(`
+[stress] !! ${incomplete.length} 张照片缺少预览：${JSON.stringify(incomplete)}`);
+} else {
+  console.log('[stress] 每张照片都有 400 与 1200 两档预览');
+}
+
+// Content-addressed storage: the same bytes legitimately share one original.
+const keyCounts = new Map();
+for (const photo of await prisma.photo.findMany({ select: { originalKey: true } })) {
+  keyCounts.set(photo.originalKey, (keyCounts.get(photo.originalKey) ?? 0) + 1);
+}
+const shared = [...keyCounts.values()].filter((count) => count > 1);
+console.log(`[stress] 共享同一原件的照片：${shared.length} 组（内容寻址存储的正常现象）`);
 
 const errors = serverLog
   .split('\n')

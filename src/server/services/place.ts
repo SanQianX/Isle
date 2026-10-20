@@ -52,37 +52,6 @@ export type PlaceDetail = PlaceSummary & {
   totalVotes: number;
 };
 
-/** Row shape used for listing; keeps the public contract separate from Prisma. */
-type PlaceWithCounts = Prisma.PlaceGetPayload<{
-  include: {
-    photos: {
-      where: { status: string };
-      select: { visitorId: true; votes: { select: { value: true } } };
-    };
-  };
-}>;
-
-function summarize(place: PlaceWithCounts): PlaceSummary {
-  return {
-    id: place.id,
-    slug: place.slug,
-    name: place.name,
-    region: place.region,
-    description: place.description,
-    createdAt: place.createdAt.toISOString(),
-    photoCount: place.photos.length,
-    contributorCount: new Set(place.photos.map((photo) => photo.visitorId)).size,
-    coverPhotoId: null,
-  };
-}
-
-const placeInclude = {
-  photos: {
-    where: { status: 'READY' },
-    select: { visitorId: true, votes: { select: { value: true } } },
-  },
-} satisfies Prisma.PlaceInclude;
-
 /**
  * Per-place counts, aggregated by the database.
  *
@@ -100,6 +69,8 @@ type PlaceAggregate = {
   contributorCount: number | bigint;
   totalVotes: number | bigint;
 };
+
+const EMPTY_TALLY = { photoCount: 0, contributorCount: 0, totalVotes: 0 };
 
 async function aggregatePlaces(
   prisma: PrismaClient,
@@ -128,6 +99,33 @@ async function aggregatePlaces(
     });
   }
   return result;
+}
+
+/** The same counts for a single place. */
+async function aggregatePlacesFor(
+  prisma: PrismaClient,
+  placeId: string,
+): Promise<{ photoCount: number; contributorCount: number; totalVotes: number }> {
+  const rows = await prisma.$queryRaw<Array<PlaceAggregate>>`
+    SELECT
+      p.id AS placeId,
+      COUNT(DISTINCT ph.id) AS photoCount,
+      COUNT(DISTINCT ph.visitorId) AS contributorCount,
+      COALESCE(SUM(v.value), 0) AS totalVotes
+    FROM Place p
+    LEFT JOIN Photo ph ON ph.placeId = p.id AND ph.status = 'READY'
+    LEFT JOIN Vote v ON v.photoId = ph.id
+    WHERE p.id = ${placeId}
+    GROUP BY p.id
+  `;
+
+  const row = rows[0];
+  if (row === undefined) return EMPTY_TALLY;
+  return {
+    photoCount: Number(row.photoCount),
+    contributorCount: Number(row.contributorCount),
+    totalVotes: Number(row.totalVotes),
+  };
 }
 
 export async function listPlaces(): Promise<PlaceSummary[]> {
@@ -166,38 +164,43 @@ export async function getFeaturedPlace(): Promise<PlaceDetail | null> {
   const prisma = await getPrisma();
 
   const place = config.featuredPlaceSlug
-    ? await prisma.place.findUnique({
-        where: { slug: config.featuredPlaceSlug },
-        include: placeInclude,
-      })
-    : await prisma.place.findFirst({
-        include: placeInclude,
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      });
+    ? await prisma.place.findUnique({ where: { slug: config.featuredPlaceSlug } })
+    : await prisma.place.findFirst({ orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
 
   if (place === null) return null;
-  return toDetail(place);
+  return toDetail(place, await aggregatePlacesFor(prisma, place.id));
 }
 
-function toDetail(place: PlaceWithCounts): PlaceDetail {
-  const summary = summarize(place);
-  const totalVotes = place.photos.reduce(
-    (sum, photo) => sum + photo.votes.reduce((inner, vote) => inner + vote.value, 0),
-    0,
-  );
-  return { ...summary, totalVotes };
+function toDetail(
+  place: { id: string; slug: string; name: string; region: string; description: string; createdAt: Date },
+  tally: { photoCount: number; contributorCount: number; totalVotes: number },
+): PlaceDetail {
+  return {
+    id: place.id,
+    slug: place.slug,
+    name: place.name,
+    region: place.region,
+    description: place.description,
+    createdAt: place.createdAt.toISOString(),
+    photoCount: tally.photoCount,
+    contributorCount: tally.contributorCount,
+    coverPhotoId: null,
+    totalVotes: tally.totalVotes,
+  };
 }
 
 export async function getPlaceBySlug(slug: string): Promise<PlaceDetail | null> {
   const prisma = await getPrisma();
-  const place = await prisma.place.findUnique({ where: { slug }, include: placeInclude });
-  return place === null ? null : toDetail(place);
+  const place = await prisma.place.findUnique({ where: { slug } });
+  if (place === null) return null;
+  return toDetail(place, await aggregatePlacesFor(prisma, place.id));
 }
 
 export async function getPlaceById(id: string): Promise<PlaceDetail | null> {
   const prisma = await getPrisma();
-  const place = await prisma.place.findUnique({ where: { id }, include: placeInclude });
-  return place === null ? null : toDetail(place);
+  const place = await prisma.place.findUnique({ where: { id } });
+  if (place === null) return null;
+  return toDetail(place, await aggregatePlacesFor(prisma, place.id));
 }
 
 /** True for any unique-constraint violation; see the call site for why the
@@ -240,6 +243,8 @@ export async function createPlace(input: CreatePlaceInput): Promise<PlaceDetail>
   const slugSeed = `${normalizedName}|${Date.now()}|${Math.random()}`;
   const slug = buildPlaceSlug(name, slugSeed);
 
+  // A freshly created place holds no photographs yet, so its counts are known
+  // without asking the database.
   const insert = async (candidateSlug: string) =>
     toDetail(
       await prisma.place.create({
@@ -250,8 +255,8 @@ export async function createPlace(input: CreatePlaceInput): Promise<PlaceDetail>
           region,
           description: input.description.trim(),
         },
-        include: placeInclude,
       }),
+      EMPTY_TALLY,
     );
 
   /**
@@ -331,9 +336,10 @@ export async function seedDefaultPlace(): Promise<PlaceDetail> {
 
   const existing = await prisma.place.findFirst({
     where: { OR: [{ slug: DEFAULT_PLACE.slug }, { normalizedName }] },
-    include: placeInclude,
   });
-  if (existing !== null) return toDetail(existing);
+  if (existing !== null) {
+    return toDetail(existing, await aggregatePlacesFor(prisma, existing.id));
+  }
 
   return toDetail(
     await prisma.place.create({
@@ -344,7 +350,7 @@ export async function seedDefaultPlace(): Promise<PlaceDetail> {
         region: DEFAULT_PLACE.region,
         description: DEFAULT_PLACE.description,
       },
-      include: placeInclude,
     }),
+    EMPTY_TALLY,
   );
 }
