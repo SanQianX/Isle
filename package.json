@@ -33,7 +33,8 @@
     "test:e2e:webkit": "node scripts/run-e2e-isolated.mjs --project=webkit",
     "test:visual": "node scripts/run-e2e-isolated.mjs --visual --grep=@visual",
     "test:a11y": "node scripts/run-e2e-isolated.mjs --grep=@a11y",
-    "check:all": "npm run lint && npm run typecheck && npm run test:unit && npm run test:integration && npm run build && npm run test:e2e && npm run test:visual"
+    "check:all": "npm run lint && npm run typecheck && npm run test:unit && npm run test:integration && npm run build && npm run test:drill && npm run test:e2e && npm run test:visual",
+    "test:drill": "node scripts/backup-restore-drill.mjs"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",

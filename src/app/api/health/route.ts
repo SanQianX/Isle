@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { NextResponse } from 'next/server';
 import { loadConfig } from '@/lib/config';
+import { areWritesPaused, isLoopbackRequest, setWritesPaused } from '@/server/http/maintenance';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -145,6 +146,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     {
       status: healthy ? 'ok' : 'degraded',
       checks,
+      writesPaused: areWritesPaused(),
       runtime: {
         node: process.version,
         platform: `${os.platform()}-${os.arch()}`,
@@ -156,5 +158,63 @@ export async function GET(request: Request): Promise<NextResponse> {
       // Health output may change at any time; never cache it.
       headers: { 'Cache-Control': 'no-store' },
     },
+  );
+}
+
+/**
+ * POST /api/health?pause-writes=1|0 — pause or resume writes.
+ *
+ * The operator tool the backup script uses. DEPLOY_RUNBOOK §8 backs up by
+ * pausing writes while the database and the media directory are copied, and
+ * this is the endpoint that makes that pause real.
+ *
+ * It was missing: the backup script has always called a URL that did not
+ * exist, with a method the route did not implement, and swallowed the
+ * failure. The backup therefore ran with writes still flowing, which is the
+ * one thing it must not do -- a photograph uploaded during the window leaves
+ * the snapshot with a row and no file.
+ *
+ * Reads keep working. The point is to make the data stable, not to take the
+ * site down for the duration of the backup.
+ *
+ * Only the host itself may call it: the Node process listens on the loopback
+ * interface and nginx always adds X-Forwarded-For, so a request from the
+ * network fails the check.
+ */
+export async function POST(request: Request): Promise<NextResponse> {
+  if (!isLoopbackRequest(request)) {
+    return NextResponse.json(
+      { error: { code: 'FORBIDDEN', message: '只有本机可以切换维护模式' } },
+      { status: 403 },
+    );
+  }
+
+  const url = new URL(request.url);
+  const raw = url.searchParams.get('pause-writes');
+
+  if (raw !== '0' && raw !== '1') {
+    return NextResponse.json(
+      {
+        error: {
+          code: 'BAD_REQUEST',
+          message: 'pause-writes 必须是 0 或 1',
+        },
+      },
+      { status: 400 },
+    );
+  }
+
+  const paused = raw === '1';
+  const previous = setWritesPaused(paused);
+
+  return NextResponse.json(
+    {
+      status: paused ? 'writes-paused' : 'writes-resumed',
+      writesPaused: areWritesPaused(),
+      // The state before the change, so a caller can tell whether it was the
+      // one that actually paused the site.
+      previouslyPaused: previous,
+    },
+    { status: 200, headers: { 'Cache-Control': 'no-store' } },
   );
 }

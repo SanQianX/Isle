@@ -36,7 +36,14 @@ if (!databaseFile || !mediaRoot || !out) {
   process.exit(1);
 }
 
-const prisma = new PrismaClient({ datasources: { db: { url: `file:${databaseFile}` } } });
+// Prisma wants a SQLite URL, and on Windows the backslashes in a raw path
+// are escape characters rather than separators. Forward slashes work on both
+// platforms, so the path is normalised before it becomes a URL -- without
+// this the manifest step fails on a Windows workstation, which is where the
+// operator would first try a restore.
+const prisma = new PrismaClient({
+  datasources: { db: { url: `file:${databaseFile.replace(/\\/g, '/')}` } },
+});
 
 try {
   const photos = await prisma.photo.findMany({

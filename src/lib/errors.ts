@@ -19,6 +19,10 @@ export const ERROR_CODES = {
   IMAGE_TOO_LARGE: 'IMAGE_TOO_LARGE',
   RATE_LIMITED: 'RATE_LIMITED',
   STORAGE_UNAVAILABLE: 'STORAGE_UNAVAILABLE',
+  // A deliberate pause, distinct from a storage fault. Both are 503 and both
+  // mean "try later", but an operator reading the logs needs to be able to
+  // tell "the site is in maintenance" from "the disk is broken".
+  SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 
@@ -37,6 +41,7 @@ const STATUS_BY_CODE: Record<ErrorCode, number> = {
   IMAGE_TOO_LARGE: 422,
   RATE_LIMITED: 429,
   STORAGE_UNAVAILABLE: 503,
+  SERVICE_UNAVAILABLE: 503,
   INTERNAL_ERROR: 500,
 };
 
@@ -101,6 +106,10 @@ export class ApiError extends Error {
 
   static storageUnavailable(message = '照片存储暂时不可用，请稍后再试') {
     return new ApiError(ERROR_CODES.STORAGE_UNAVAILABLE, message);
+  }
+
+  static serviceUnavailable(message = '服务暂时不可用，请稍后再试') {
+    return new ApiError(ERROR_CODES.SERVICE_UNAVAILABLE, message);
   }
 
   static internal(message = '服务器开小差了，请稍后再试') {

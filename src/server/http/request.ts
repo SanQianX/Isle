@@ -1,6 +1,7 @@
 import { ApiError, ERROR_CODES } from '@/lib/errors';
 import { getConfig } from '@/lib/config';
 import { getPrisma } from '@/server/db/client';
+import { requireWritesAllowed } from '@/server/http/maintenance';
 import {
   buildVisitorCookie,
   readVisitorTokenFromCookieHeader,
@@ -48,10 +49,14 @@ export type WriteContext = {
 /**
  * Resolve identity and enforce origin for a mutating request.
  *
- * Throws `ApiError` (INVALID_ORIGIN / INVALID_VISITOR) rather than returning a
- * partially-valid context, so a handler cannot forget to check.
+ * Throws `ApiError` (INVALID_ORIGIN / INVALID_VISITOR / SERVICE_UNAVAILABLE)
+ * rather than returning a partially-valid context, so a handler cannot forget
+ * to check.
  */
 export async function requireWriteContext(request: Request): Promise<WriteContext> {
+  // The maintenance check comes first: a paused site refuses a write without
+  // touching the database at all.
+  requireWritesAllowed();
   assertSameOrigin(request);
   const resolved = await resolveVisitor(
     readVisitorTokenFromCookieHeader(request.headers.get('cookie')),
