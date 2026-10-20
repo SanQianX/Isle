@@ -172,7 +172,14 @@ export async function getFeaturedPlace(): Promise<PlaceDetail | null> {
 }
 
 function toDetail(
-  place: { id: string; slug: string; name: string; region: string; description: string; createdAt: Date },
+  place: {
+    id: string;
+    slug: string;
+    name: string;
+    region: string;
+    description: string;
+    createdAt: Date;
+  },
   tally: { photoCount: number; contributorCount: number; totalVotes: number },
 ): PlaceDetail {
   return {
