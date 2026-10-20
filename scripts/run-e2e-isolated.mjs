@@ -152,6 +152,13 @@ const env = {
   E2E_BASE_URL: baseUrl,
   NEXT_TELEMETRY_DISABLED: '1',
   ISLE_VISUAL: isVisualRun ? '1' : '0',
+  // The client's upload deadlines are shortened so the timeout path is
+  // testable in seconds rather than minutes. The production defaults are
+  // 30s / 120s; the logic is the same, only the constants differ. Local
+  // uploads answer in well under a second, so 5s is a wide margin -- but not
+  // so wide that a genuinely dead connection goes unnoticed.
+  UPLOAD_STALL_TIMEOUT_MS: '5000',
+  UPLOAD_RESPONSE_TIMEOUT_MS: '5000',
 };
 
 for (const [key, value] of Object.entries(env)) {

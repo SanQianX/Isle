@@ -70,6 +70,8 @@ export default async function UploadPage({ params }: PageProps) {
                 maxUploadFiles: limits.maxUploadFiles,
                 maxConcurrentUploads: limits.maxConcurrentUploads,
                 acceptedTypes: ALLOWED_IMAGE_MIME_TYPES,
+                stallTimeoutMs: config.uploadStallTimeoutMs,
+                responseTimeoutMs: config.uploadResponseTimeoutMs,
               }}
             />
           </div>

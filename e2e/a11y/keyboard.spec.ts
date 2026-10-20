@@ -51,9 +51,7 @@ test('tabbing forward inside the viewer never leaves the viewer', async ({ page 
   await expect(page.getByTestId('lightbox')).toBeVisible();
 
   // Focus starts inside the dialog, so the trap has somewhere to start from.
-  await expect
-    .poll(() => focusInsideLightbox(page), { timeout: 15_000 })
-    .toBe(true);
+  await expect.poll(() => focusInsideLightbox(page), { timeout: 15_000 }).toBe(true);
 
   // Walk forwards past every control the viewer has. The viewer has fewer
   // than a dozen focusable elements, so twelve steps is comfortably more than
@@ -76,9 +74,7 @@ test('shift-tabbing backwards inside the viewer never leaves the viewer', async 
 
   await page.getByTestId('ranking-leader-open').click();
   await expect(page.getByTestId('lightbox')).toBeVisible();
-  await expect
-    .poll(() => focusInsideLightbox(page), { timeout: 15_000 })
-    .toBe(true);
+  await expect.poll(() => focusInsideLightbox(page), { timeout: 15_000 }).toBe(true);
 
   for (let step = 0; step < 12; step += 1) {
     await page.keyboard.press('Shift+Tab');
@@ -105,9 +101,7 @@ test('the viewer is reachable and operable from the keyboard alone', async ({ pa
 
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('lightbox')).toBeVisible();
-  await expect
-    .poll(() => focusInsideLightbox(page), { timeout: 15_000 })
-    .toBe(true);
+  await expect.poll(() => focusInsideLightbox(page), { timeout: 15_000 }).toBe(true);
 });
 
 test('a vote can be cast with the keyboard and is announced', async ({ page }) => {
@@ -132,9 +126,7 @@ test('a vote can be cast with the keyboard and is announced', async ({ page }) =
   await page.keyboard.press('Enter');
 
   // The vote took: the button now reports itself as pressed.
-  await expect
-    .poll(async () => up.getAttribute('aria-pressed'), { timeout: 15_000 })
-    .toBe('true');
+  await expect.poll(async () => up.getAttribute('aria-pressed'), { timeout: 15_000 }).toBe('true');
 
   // And the change was announced rather than happening silently.
   const status = page.getByTestId(`vote-status-${photoId ?? ''}`);

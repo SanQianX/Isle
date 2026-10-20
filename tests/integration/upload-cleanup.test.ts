@@ -1,5 +1,4 @@
 import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type * as PhotosRoute from '@/app/api/places/[placeId]/photos/route';
 import { createTestContext, migrateTestDatabase, type TestContext } from '../factories';

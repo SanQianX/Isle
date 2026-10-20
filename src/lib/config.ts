@@ -50,6 +50,20 @@ const envSchema = z.object({
   MAX_UPLOAD_FILES: z.coerce.number().int().positive().max(200).default(30),
   /** Client-side upload concurrency the UI must respect. */
   MAX_CONCURRENT_UPLOADS_PER_CLIENT: z.coerce.number().int().positive().max(10).default(2),
+  /**
+   * How long the client waits for the upload to *move* before deciding the
+   * connection is dead. A slow link is not a stall -- a slow link keeps
+   * sending bytes, and every byte resets this timer. A pause this long with
+   * nothing moving is a dead connection, and the photo needs to become
+   * retryable rather than spin forever.
+   */
+  UPLOAD_STALL_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+  /**
+   * How long the client waits for the *answer* once the body has been sent.
+   * Longer than the stall timeout on purpose: the server still has to decode
+   * the photograph and render two previews, which is real work, not a hang.
+   */
+  UPLOAD_RESPONSE_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
   /** Decompression-bomb budget, in pixels. */
   MAX_IMAGE_PIXELS: z.coerce.number().int().positive().default(100_000_000),
 
@@ -88,6 +102,8 @@ export type AppConfig = {
   readonly maxUploadBytes: number;
   readonly maxUploadFiles: number;
   readonly maxConcurrentUploads: number;
+  readonly uploadStallTimeoutMs: number;
+  readonly uploadResponseTimeoutMs: number;
   readonly maxImagePixels: number;
   readonly accessMode: 'friends-only' | 'public';
   readonly featuredPlaceSlug: string | undefined;
@@ -146,6 +162,8 @@ function buildConfig(env: Env): AppConfig {
     maxUploadBytes: env.MAX_UPLOAD_BYTES,
     maxUploadFiles: env.MAX_UPLOAD_FILES,
     maxConcurrentUploads: env.MAX_CONCURRENT_UPLOADS_PER_CLIENT,
+    uploadStallTimeoutMs: env.UPLOAD_STALL_TIMEOUT_MS,
+    uploadResponseTimeoutMs: env.UPLOAD_RESPONSE_TIMEOUT_MS,
     maxImagePixels: env.MAX_IMAGE_PIXELS,
     accessMode: env.SITE_ACCESS_MODE,
     featuredPlaceSlug: env.FEATURED_PLACE_SLUG,

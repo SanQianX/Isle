@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { formatBytes } from '@/lib/format';
+import { uploadWithProgress } from '@/lib/upload-client';
 
 /**
  * Multi-photo upload.
@@ -25,6 +26,10 @@ export type UploadLimits = {
   maxUploadFiles: number;
   maxConcurrentUploads: number;
   acceptedTypes: readonly string[];
+  /** No bytes moved for this long means the connection is dead. */
+  stallTimeoutMs: number;
+  /** The body was sent; the server had this long to answer. */
+  responseTimeoutMs: number;
 };
 
 type RowStatus = 'queued' | 'uploading' | 'success' | 'failed';
@@ -36,6 +41,8 @@ type Row = {
   description: string;
   status: RowStatus;
   error: string | null;
+  /** 0–100 while uploading; null otherwise. */
+  progress: number | null;
 };
 
 let rowCounter = 0;
@@ -120,6 +127,7 @@ export function UploadForm({
             description: '',
             status: problem === null ? 'queued' : 'failed',
             error: problem,
+            progress: null,
           });
         }
         return [...current, ...added];
@@ -130,7 +138,7 @@ export function UploadForm({
 
   const uploadOne = useCallback(
     async (row: Row): Promise<void> => {
-      patch(row.key, { status: 'uploading', error: null });
+      patch(row.key, { status: 'uploading', error: null, progress: 0 });
 
       const form = new FormData();
       form.append('file', row.file, row.file.name);
@@ -140,35 +148,43 @@ export function UploadForm({
       // already stored rather than creating a duplicate.
       form.append('idempotencyKey', `${placeId}:${row.key}:${row.file.name}:${row.file.size}`);
 
-      try {
-        const response = await fetch(`/api/places/${placeId}/photos`, {
-          method: 'POST',
-          body: form,
-          credentials: 'same-origin',
+      const outcome = await uploadWithProgress({
+        url: `/api/places/${placeId}/photos`,
+        form,
+        stallTimeoutMs: limits.stallTimeoutMs,
+        responseTimeoutMs: limits.responseTimeoutMs,
+        onProgress: (percent) => {
+          patch(row.key, { progress: percent });
+        },
+      });
+
+      if (outcome.timedOut) {
+        // The connection died rather than the server refusing. The photo may or
+        // may not have reached the server; the idempotency key makes a retry
+        // safe either way, so the user is told to retry rather than left
+        // watching a spinner that will never finish.
+        patch(row.key, {
+          status: 'failed',
+          progress: null,
+          error: '连接中断，上传没有完成，请重试这一张',
         });
-
-        // Read the body on BOTH paths. On success the payload is unused, but a
-        // browser only fires `requestfinished` once the body has been consumed --
-        // without this a successful upload never "finishes", which breaks any
-        // tooling that measures how many uploads are in flight at once.
-        const body = (await response.json().catch(() => null)) as {
-          error?: { message?: string };
-        } | null;
-
-        if (!response.ok) {
-          patch(row.key, {
-            status: 'failed',
-            error: body?.error?.message ?? `上传失败（${response.status}）`,
-          });
-          return;
-        }
-
-        patch(row.key, { status: 'success', error: null });
-      } catch {
-        patch(row.key, { status: 'failed', error: '网络中断，请重试这一张' });
+        return;
       }
+
+      if (!outcome.ok) {
+        patch(row.key, {
+          status: 'failed',
+          progress: null,
+          error:
+            outcome.body?.error?.message ??
+            (outcome.status === 0 ? '网络中断，请重试这一张' : `上传失败（${outcome.status}）`),
+        });
+        return;
+      }
+
+      patch(row.key, { status: 'success', error: null, progress: 100 });
     },
-    [patch, placeId],
+    [limits.responseTimeoutMs, limits.stallTimeoutMs, patch, placeId],
   );
 
   const runQueue = useCallback(
@@ -321,7 +337,32 @@ export function UploadForm({
                     {row.status === 'success' ? '已上传' : null}
                     {row.status === 'failed' ? '失败' : null}
                   </span>
+                  {row.status === 'uploading' && row.progress !== null ? (
+                    // The number is the real share of the body the browser has
+                    // handed to the network -- not a timer pretending to be
+                    // progress. A screen reader hears it too, so the wait is
+                    // not silent.
+                    <span
+                      className="upload-progress-label"
+                      data-testid={`upload-progress-${row.key}`}
+                      aria-live="polite"
+                    >
+                      {row.progress}%
+                    </span>
+                  ) : null}
                 </div>
+                {row.status === 'uploading' ? (
+                  <div
+                    className="upload-progress"
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={row.progress ?? 0}
+                    aria-label={`${row.title} 的上传进度`}
+                  >
+                    <span style={{ width: `${row.progress ?? 0}%` }} />
+                  </div>
+                ) : null}
                 {row.error !== null ? (
                   <div
                     className="upload-error"

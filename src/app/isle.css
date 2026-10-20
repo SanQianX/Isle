@@ -89,6 +89,9 @@ header.site-header{position:relative;z-index:3;background:var(--hero);border-bot
 .upload-status-uploading{color:var(--accent)}
 .upload-status-success{color:var(--accent)}
 .upload-status-failed{color:#a4452f}
+.upload-progress-label{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--accent)}
+.upload-progress{height:2px;background:var(--chip);border-radius:1px;overflow:hidden}
+.upload-progress>span{display:block;height:100%;background:var(--accent);transition:width .18s linear}
 .upload-error{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:11px;color:#a4452f;line-height:1.7}
 .upload-error .btn-quiet{font-size:11px;padding:0;color:#a4452f;text-decoration:underline;text-underline-offset:3px}
 .upload-summary{margin:16px 0;padding:13px 15px;background:var(--chip);color:var(--accent);font-size:12px}
