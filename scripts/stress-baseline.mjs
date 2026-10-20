@@ -110,9 +110,13 @@ console.log(`[stress] ${placeIds.length} 个地点、${seeded} 张照片、${VOT
 // check now refuses to call a deployment healthy without it -- which is the
 // point. Copy it in, exactly as scripts/start-test-server.mjs does.
 await fs.mkdir(path.join(repoRoot, '.next', 'standalone', '.next'), { recursive: true });
-await fs.cp(path.join(repoRoot, '.next', 'static'), path.join(repoRoot, '.next', 'standalone', '.next', 'static'), {
-  recursive: true,
-});
+await fs.cp(
+  path.join(repoRoot, '.next', 'static'),
+  path.join(repoRoot, '.next', 'standalone', '.next', 'static'),
+  {
+    recursive: true,
+  },
+);
 
 const { spawn } = await import('node:child_process');
 const server = spawn(process.execPath, [path.join(repoRoot, '.next', 'standalone', 'server.js')], {
@@ -238,7 +242,11 @@ await timed('20 个访客并发上传同一张图（内容寻址复用）', asyn
 await timed('10 个访客并发上传不同照片', async () => {
   const posts = Array.from({ length: 10 }, (_, index) => {
     const fd = new FormData();
-    fd.append('file', new Blob([index % 2 === 0 ? fixture : portrait], { type: 'image/jpeg' }), `p${index}.jpg`);
+    fd.append(
+      'file',
+      new Blob([index % 2 === 0 ? fixture : portrait], { type: 'image/jpeg' }),
+      `p${index}.jpg`,
+    );
     fd.append('idempotencyKey', `burst-${index}-${Math.random()}`);
     return fetch(`${ORIGIN}/api/places/${targetPlace}/photos`, { method: 'POST', body: fd });
   });
