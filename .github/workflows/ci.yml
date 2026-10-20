@@ -34,6 +34,16 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
       - name: Report dev-dependency findings (non-blocking)
         run: npm audit --audit-level=critical || true
+      # The deployment scripts are what a real deployment runs, and they only
+      # ever run on Linux -- so Linux is where they have to be checked. A
+      # syntax error in one of them would otherwise surface at the moment
+      # somebody is trying to put the site up.
+      - name: Check the deployment scripts parse
+        run: |
+          for script in scripts/*.sh; do
+            bash -n "$script" || exit 1
+          done
+          echo "all shell scripts parse"
 
   unit:
     name: Unit tests
