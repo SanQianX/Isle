@@ -383,3 +383,67 @@ npm audit --omit=dev               # → found 0 vulnerabilities
 - **未执行**（无服务器/域名/证书，已如实标注）：CI 实跑、Linux staging、nginx/systemd/TLS 实机、`check:all` 的 Linux ABI 验证、Linux 视觉基线审定、Lighthouse 与磁盘满故障注入
 - **最终状态：`READY_NOT_DEPLOYED`**，不是「已上线」
 **下一 Phase**：无。剩余全部为人工操作，见交付报告 §8。
+
+---
+
+## 加固轮次 — Phase 12 之后的「继续找问题并修」
+
+**状态**：PASSED
+**提交**：`b3a3375` … `c6f1e8e`（20 个 commit）
+**起因**：Phase 12 交付后按要求继续执行——先补齐计划书点名但从未覆盖的 8 个缺测，再继续往下挖，尽量在更多测试里找到并解决实际问题。
+
+### 一、补齐的 8 个缺测
+
+计划书点名的 8 项此前没有对应测试，现已全部落地并真实通过：
+
+| 缺测 | 对应用例 | 关键断言 |
+|---|---|---|
+| 重启持久化 | `e2e/resilience/restart-persistence.spec.ts` | 杀掉真实进程、用同一 DB 与媒体目录起新进程，照片/票数/地点全在，原件字节仍一致 |
+| 磁盘写失败 | `tests/integration/storage-failure.test.ts` | 真的把目录换成同名文件制造 ENOTDIR → 503 而非 500，且不留半成品 |
+| 断网重试 | `e2e/resilience/offline-retry.spec.ts` | `setOffline` 真断网 → 逐图失败、逐图重试、恢复后其余不受牵动 |
+| 10 张批量 | `e2e/upload/batch-upload.spec.ts` | 10 张里 1 张坏 → 另外 9 张各自成功，服务端恰好 9 行；同时在途不超过 2 |
+| 跨地点泄露 | `tests/integration/place-scoping.test.ts` | A 地点的照片不出现在 B 地点的任何接口里 |
+| 无外链断言 | `e2e/pages/assets-and-viewports.spec.ts` | 页面不引用任何外部域名 |
+| 320px | `e2e/pages/assets-and-viewports.spec.ts` | 320px 下单列、每张保持自身比例、不裁切、无横向滚动 |
+| 排名一致性 | `tests/integration/ranking-order.test.ts` | SQL 排序与 JS 比较器给出的顺序完全一致 |
+
+### 二、这一轮找到并修掉的**真实产品缺陷**
+
+| # | 缺陷 | 影响 | 提交 |
+|---|---|---|---|
+| 1 | 读路径把全部照片与票读进内存再排序 | 500 张时 17.2ms → 9.3ms；地点页从 O(照片数) 变成 O(地点数) | `b3a3375` `46749e5` `c9cb0ee` `84d63b8` |
+| 2 | 导航触控目标 < 24×24 | 触屏难以点中 | `eee7bb3` |
+| 3 | 激活下划线被自己的 `::after` 顶到页眉顶部 | 页眉视觉错位 | `71a53d5` |
+| 4 | 损坏照片报「服务器开小差了」 | 用户无法分辨是自己文件坏了还是服务坏了 | `4ca6d2a` |
+| 5 | 静态资源缺失时全站无样式却不报错 | 部署坏了但没有任何告警 | `e377c39` |
+| 6 | WebKit 的 `.webp` 没有 MIME 类型 | **Safari 用户传不了 WebP** | `1449dfb` |
+| 7 | `overflow-x: clip` 把长地点名裁掉 | 长名字看不见 | `395aa57` |
+| 8 | 视觉基线不可复现 | 截图永远对不上自己的基线 | `713b7a7` |
+| 9 | 被拒的上传留下临时文件 | 临时目录撑满 → **整站磁盘故障** | `26f9bdc` |
+| 10 | 缺文件部分的 multipart 请求挂死 | 该请求永久占着连接 | `26f9bdc` |
+| 11 | 灯箱没有焦点陷阱 | **核心界面离背景页面只差一次 `Shift+Tab`** | `8400b68` |
+| 12 | 上传只有状态没有进度；请求不返回就永远转圈 | UP-05「进度可证明」从未实现；用户无法重试 | `dc0a709` |
+| 13 | 备份脚本的「暂停写入」是**摆设** | 备份期间写入照旧，快照可能「有行无文件」 | `92a8cac` |
+| 14 | 投票失败只有读屏能听见 | 看得见的用户看不到任何失败反馈 | `80d6e53` |
+| 15 | 压测脚本沙箱按 pid 命名、忘记关闭应用的 Prisma 单例 | 压测跑在**别人上一次的数据库**上 | `3e1f0ac` |
+| 16 | 维护模式用例暂停了全套共用的服务 | 同一时刻跑的其它用例全部收到 503 | `c6f1e8e` |
+
+### 三、最终执行记录
+
+```bash
+npm run check:all        # → exit 0
+  npx eslint .                        → 0
+  npx tsc --noEmit                    → 0
+  npx prettier --check                → 全部通过
+  npx vitest run tests/unit           → 156 passed / 0 failed (9 files)
+  npx vitest run tests/integration    → 149 passed / 0 failed (10 files)
+  npm run build                       → exit 0
+  npm run test:drill                  → 14/14 checks passed
+  npm run test:e2e                    → 675 passed / 0 failed (5 browser projects)
+  npm run test:visual                 → 55 passed / 0 failed
+npm audit --omit=dev                  → found 0 vulnerabilities
+```
+
+**残留**：
+- 60 条 E2E 跳过：55 条视觉回归（需独立数据集）、4 条仅 Chromium 能做的 CDP 限速进度用例、1 条 WebKit 焦点归还断言。**每一条都在测试代码里写明了理由与替代断言**，没有一条是为了「让它变绿」而跳过的。
+- 仍未实机执行：Linux ABI 重建、nginx/systemd/TLS 实机、staging 整链路、Linux 权威视觉基线、Lighthouse。状态 `READY_NOT_DEPLOYED`。

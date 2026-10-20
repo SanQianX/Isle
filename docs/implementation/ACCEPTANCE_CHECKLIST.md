@@ -11,7 +11,7 @@
 | Next / React | 15.5.28 / 19.1.10 |
 | Prisma / Playwright / Vitest | 6.19.3 / 1.64.1 / 4.1.12 |
 | `npm audit --omit=dev` | **0 vulnerabilities** |
-| Git | 15 commits，main 分支，工作区干净 |
+| Git | 43 commits，main 分支，工作区干净 |
 
 ## 1. 工程/仓库
 
@@ -55,18 +55,18 @@
 
 | ID | 状态 | 证据 |
 |---|---|---|
-| T-01 | **PASS** | `npx vitest run tests/unit` → **144 passed / 8 files** |
-| T-02 | **PASS** | `npx vitest run tests/integration` → **68 passed / 4 files** |
+| T-01 | **PASS** | `npx vitest run tests/unit` → **156 passed / 9 files** |
+| T-02 | **PASS** | `npx vitest run tests/integration` → **149 passed / 10 files** |
 | T-03 | **PASS** | `scripts/run-e2e-isolated.mjs` 建独立 DB + 媒体目录，跑真实迁移与种子，启动 `.next/standalone/server.js`（与 systemd 同一产物） |
-| T-04 | **PASS** | Chromium：**478 用例集中的全部通过**（五项目合跑） |
-| T-05 | **PASS** | Firefox：同上 |
+| T-04 | **PASS** | Chromium：**五项目合跑 675 条用例全部通过** |
+| T-05 | **PASS** | Firefox：同上（含 4 条 CDP 限速进度用例仅 Chromium 跑，已注明理由） |
 | T-06 | **PASS** | WebKit：同上 |
 | T-07 | **PASS** | mobile-chrome：同上 |
 | T-08 | **PASS** | mobile-webkit：同上 |
 | T-09 | **PASS** | `upload-flow.spec.ts`：真实 multipart → 榜单可见 → 另一访客可见；上传后字节一致性 |
 | T-10 | **PASS** | `voting.spec.ts` 9 项 + 集成 22 项，含 20 并发 |
 | T-11 | **PASS** | 原图字节、下载、EXIF 方向（Orientation=6 落库为 1600×1200） |
-| T-12 | **部分 PASS** | `npm run test:visual` → **55 passed**（11 张基线 × 5 浏览器），连续多次无 diff。**权威基线仍需 Linux CI 生成**（ADR-007）；本地基线目录已 gitignore |
+| T-12 | **部分 PASS** | `npm run test:visual` → **55 passed**（11 张基线 × 5 浏览器），连续三次运行完全一致（基线此前不可复现：pid 命名、同毫秒并列、跨浏览器项目共享数据库三个成因已修）。**权威基线仍需 Linux CI 生成**（ADR-007）；本地基线目录已 gitignore |
 | T-13 | **PASS** | axe-core（WCAG 2.2 AA）扫描首页/列表/榜单/上传页/灯箱，**critical 与 serious 均为 0**；另有 alt、控件命名、`aria-pressed`、焦点可见、Tab 可达等 5 项专项 |
 | T-14 | **PASS** | 错误码覆盖 400/403/404/409/413/415/422/429/503；上传恶意文件、断网重试、磁盘写失败均有集成用例 |
 | T-15 | **NOT_RUN** | CI 工作流已提交（`.github/workflows/ci.yml`），但**无远程仓库、无法推送**，因此没有真实 CI run URL |
@@ -79,7 +79,7 @@
 | O-02 | **NOT_RUN** | `deploy/nginx/isle.conf` / `isle-limits.conf` 已写；`nginx -t`、TLS、413、429 未在真实主机验证 |
 | O-03 | **NOT_RUN** | `deploy/systemd/isle.service` 已写（含完整 hardening）；未在真实 systemd 上验证 |
 | O-04 | **PASS（结构）** | DB 与 media 位于 `/var/lib/isle`，与 `/opt/isle/releases/<sha>` 完全分离；`deploy.sh` 只切换 `current` 符号链接 |
-| O-05 | **PASS（本地实测）** | `scripts/write-media-manifest.mjs` 实测：7/7 原件 exit 0；**翻转 1 字节 → `hash-mismatch` exit 2**；**删除文件 → `missing` exit 2**。`reconcile-storage.mjs` 实测：干净树 0 漂移，人为制造漂移后同时报出缺失与孤儿 |
+| O-05 | **PASS（本地实测）** | `npm run test:drill` → **14/14**：真实备份 → 隔离恢复 → 原件逐字节相同、行数一致 → **损坏归档被拒绝**（`archived media does not match the archived database`）。`write-media-manifest.mjs` 另测：7/7 原件 exit 0；**翻转 1 字节 → `hash-mismatch` exit 2**；**删除文件 → `missing` exit 2**。`reconcile-storage.mjs` 实测：干净树 0 漂移 |
 | O-06 | **NOT_RUN** | 无 staging 主机，无法从域名走完上传/投票/下载链路 |
 | O-07 | **NOT_RUN** | 无 staging 主机，无法执行回滚演练 |
 | O-08 | **BLOCKED** | 需用户确认 `SITE_ACCESS_MODE`。代码默认 `friends-only`（nginx Basic Auth），公网开放需另行验收滥用治理 |
@@ -119,15 +119,17 @@
 | 09 | `135a908` + `2d1b762` |
 | 10 | `43d986e` + `fed51f2` |
 | 11 | `785fd0a` |
-| 12 | 本次提交 |
+| 12 | `05d6669` |
+| 加固轮次 | `b3a3375` … `c6f1e8e`（20 个 commit，见 DELIVERY_REPORT §2） |
 
 ## 8. 最终测试结果
 
 ```
-Unit         144 passed / 0 failed   (8 files)
-Integration   68 passed / 0 failed   (4 files)
-E2E          478 passed / 0 failed   (chromium + firefox + webkit + mobile-chrome + mobile-webkit)
+Unit         156 passed / 0 failed   (9 files)
+Integration  149 passed / 0 failed   (10 files)
+E2E          675 passed / 0 failed   (chromium + firefox + webkit + mobile-chrome + mobile-webkit)
 Visual        55 passed / 0 failed   (11 baselines x 5 browser projects)
+Backup drill  14 passed / 0 failed   (npm run test:drill)
 lint / typecheck / format / build   exit 0
 npm audit --omit=dev                0 vulnerabilities
 ```
