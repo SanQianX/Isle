@@ -58,7 +58,15 @@ async function waitForJustifiedWall(page: Page): Promise<void> {
  * across the cases below so the leaderboard content is identical each run.
  */
 async function deterministicPlace(page: Page): Promise<string> {
-  const name = `视觉基线岛 ${process.pid}`;
+  // A fixed name, not one derived from the process id. The place name is
+  // rendered in the page heading, so a pid in it would make every screenshot
+  // differ from the baseline -- the comparison would be measuring the pid
+  // rather than the layout.
+  // One fixture place per browser project. The projects share a database, so a
+  // single shared place would accumulate votes from every project that ran
+  // before it, and the score printed under each photograph would differ from
+  // one project to the next.
+  const name = `视觉基线岛 ${test.info().project.name}`;
   const created = await page.request.post(`${ORIGIN}/api/places`, {
     data: { name, region: '广东 · 珠海 · 万山群岛', description: '视觉回归用的固定地点。' },
   });
@@ -87,16 +95,45 @@ async function deterministicPlace(page: Page): Promise<string> {
     ['extreme-wide.webp', 'image/webp', '还没靠岸'],
   ];
 
+  const uploaded: string[] = [];
   for (const [file, mime, title] of uploads) {
     const bytes = await fs.readFile(path.join(process.cwd(), 'tests', 'fixtures', file));
     // The idempotency key makes this a no-op once the fixtures are in place.
-    await page.request.post(`${ORIGIN}/api/places/${id}/photos`, {
+    const response = await page.request.post(`${ORIGIN}/api/places/${id}/photos`, {
       multipart: {
         file: { name: file, mimeType: mime, buffer: bytes },
         title,
         idempotencyKey: `visual-${id}-${file}`,
       },
     });
+    const body = (await response.json()) as { photo?: { id: string } };
+    if (body.photo !== undefined) uploaded.push(body.photo.id);
+  }
+
+  // Give the photographs distinct scores.
+  //
+  // The four are uploaded within the same millisecond, so their upload times
+  // tie and the order would fall through to the id tie-break -- and cuid ids
+  // are not ordered by creation time within a millisecond. The leaderboard would
+  // then be laid out differently on every run, and the screenshot would be
+  // comparing a random arrangement rather than the layout. Distinct scores
+  // decide the order outright, and a leaderboard where the photographs have
+  // different scores is more representative anyway.
+  for (const [index, photoId] of uploaded.entries()) {
+    const votes = uploaded.length - index - 1;
+    for (let voter = 0; voter < votes; voter += 1) {
+      // A stable token: the same visitor votes again on a later run, so the row
+      // is updated rather than added and the totals stay put.
+      const token = `visual-voter-${test.info().project.name}-${index}-${voter}`;
+      const identity = await page.request.get(`${ORIGIN}/api/visitor`, {
+        headers: { cookie: `isle_visitor=${token}` },
+      });
+      const cookie = (identity.headers()['set-cookie'] ?? '').split(';')[0] ?? '';
+      await page.request.put(`${ORIGIN}/api/photos/${photoId}/vote`, {
+        headers: { cookie, 'content-type': 'application/json' },
+        data: { value: 1 },
+      });
+    }
   }
 
   return slug;
@@ -113,7 +150,17 @@ async function deterministicPlace(page: Page): Promise<string> {
 /** Mask the random visitor code; see the note above. */
 function shot(page: Page) {
   return {
-    mask: [page.getByTestId('visitor-label')],
+    // Every anonymous visitor code has to be masked, not just the one in the
+    // header. The fixtures are uploaded without a cookie, so the server mints
+    // a fresh identity on every run and the code printed under each photograph
+    // would differ from the baseline every time -- the comparison would be
+    // measuring a random six-character string rather than the layout.
+    mask: [
+      page.getByTestId('visitor-label'),
+      page.locator('.caption-author'),
+      page.locator('.pick-artist'),
+      page.locator('.feature-metrics .visitor'),
+    ],
     maskColor: '#ffffff',
   };
 }
