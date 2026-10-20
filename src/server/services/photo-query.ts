@@ -177,6 +177,136 @@ export async function loadRankedPhotos(
   };
 }
 
+/**
+ * The top N photographs of a place, ranked in the database.
+ *
+ * The home page shows four photographs and the place page shows seven, but
+ * both used to load every photograph of the place to work out which four came
+ * first. Ranking in SQL with a LIMIT means the query returns four rows no
+ * matter how many photographs the place holds.
+ *
+ * The ORDER BY below must agree with `rankingComparator` in src/server/ranking.ts.
+ * They are two implementations of the same rule, and the cursor pagination
+ * walks between them: the API orders with the comparator, this query orders with
+ * SQL. `tests/unit/ranking.test.ts` and the agreement test in
+ * `tests/integration/place-scoping.test.ts` keep them in step.
+ */
+export async function loadTopPhotos(
+  placeId: string,
+  visitorId: string,
+  limit: number,
+): Promise<{ photos: PhotoView[]; summary: PlaceSummaryView; totalPhotos: number }> {
+  const prisma = await getPrisma();
+
+  const rows = await prisma.$queryRaw<
+    Array<{
+      id: string;
+      title: string;
+      description: string;
+      width: number;
+      height: number;
+      originalMime: string;
+      originalByteLength: number;
+      createdAt: Date;
+      displayCode: string;
+      upCount: number | bigint;
+      downCount: number | bigint;
+    }>
+  >`
+    SELECT
+      ph.id AS id,
+      ph.title AS title,
+      ph.description AS description,
+      ph.width AS width,
+      ph.height AS height,
+      ph.originalMime AS originalMime,
+      ph.originalByteLength AS originalByteLength,
+      ph.createdAt AS createdAt,
+      vi.displayCode AS displayCode,
+      SUM(CASE WHEN v.value > 0 THEN 1 ELSE 0 END) AS upCount,
+      SUM(CASE WHEN v.value < 0 THEN 1 ELSE 0 END) AS downCount
+    FROM Photo ph
+    JOIN Visitor vi ON vi.id = ph.visitorId
+    LEFT JOIN Vote v ON v.photoId = ph.id
+    WHERE ph.placeId = ${placeId} AND ph.status = 'READY'
+    GROUP BY ph.id
+    ORDER BY (upCount - downCount) DESC, upCount DESC, ph.createdAt ASC, ph.id ASC
+    LIMIT ${limit}
+  `;
+
+  const [ownVotes, totals] = await Promise.all([
+    prisma.vote.findMany({
+      where: { visitorId, photoId: { in: rows.map((row) => row.id) } },
+      select: { photoId: true, value: true },
+    }),
+    placeTotals(prisma, placeId),
+  ]);
+
+  const ownByPhoto = new Map(ownVotes.map((vote) => [vote.photoId, vote.value]));
+
+  const photos: PhotoView[] = rows.map((row, index) => {
+    const upCount = Number(row.upCount);
+    const downCount = Number(row.downCount);
+    const own = ownByPhoto.get(row.id);
+    return {
+      id: row.id,
+      rank: index + 1,
+      title: row.title,
+      description: row.description,
+      width: row.width,
+      height: row.height,
+      mime: row.originalMime,
+      bytes: row.originalByteLength,
+      createdAt: row.createdAt,
+      uploaderDisplayCode: row.displayCode,
+      upCount,
+      downCount,
+      score: upCount - downCount,
+      currentVisitorVote: own === 1 ? 1 : own === -1 ? -1 : 0,
+      preview400Url: `/api/photos/${row.id}/preview/400`,
+      preview1200Url: `/api/photos/${row.id}/preview/1200`,
+      originalUrl: `/api/photos/${row.id}/original`,
+      downloadUrl: `/api/photos/${row.id}/download`,
+    };
+  });
+
+  return { photos, summary: totals, totalPhotos: totals.photoCount };
+}
+
+/**
+ * Whole-place totals in one row.
+ *
+ * The counts describe the place, not the page, so a hero never claims "08
+ * photographs" when the place holds forty.
+ */
+async function placeTotals(prisma: PrismaClient, placeId: string): Promise<PlaceSummaryView> {
+  const rows = await prisma.$queryRaw<
+    Array<{
+      photoCount: number | bigint;
+      contributorCount: number | bigint;
+      totalVotes: number | bigint;
+    }>
+  >`
+    SELECT
+      COUNT(DISTINCT ph.id) AS photoCount,
+      COUNT(DISTINCT ph.visitorId) AS contributorCount,
+      COALESCE(SUM(v.value), 0) AS totalVotes
+    FROM Photo ph
+    LEFT JOIN Vote v ON v.photoId = ph.id
+    WHERE ph.placeId = ${placeId} AND ph.status = 'READY'
+  `;
+
+  const row = rows[0];
+  if (row === undefined) {
+    return { photoCount: 0, contributorCount: 0, totalVotes: 0 };
+  }
+  return {
+    photoCount: Number(row.photoCount),
+    contributorCount: Number(row.contributorCount),
+    totalVotes: Number(row.totalVotes),
+  };
+}
+
 /** The top-ranked photo, or null when the place is empty. */
 export async function loadLeader(placeId: string, visitorId: string): Promise<PhotoView | null> {
   const { photos } = await loadRankedPhotos(placeId, visitorId, 1);

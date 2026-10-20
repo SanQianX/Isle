@@ -8,7 +8,7 @@ import { formatScore } from '@/lib/format';
 import { getConfig } from '@/lib/config';
 import { resolveVisitor, visitorDisplayLabel } from '@/server/auth/visitor';
 import { getPlaceBySlug } from '@/server/services/place';
-import { loadRankedPhotos } from '@/server/services/photo-query';
+import { loadTopPhotos } from '@/server/services/photo-query';
 import { toWallPhoto } from '@/lib/wall-photo';
 
 export const dynamic = 'force-dynamic';
@@ -25,7 +25,7 @@ export default async function PlacePage({ params }: PageProps) {
   const place = await getPlaceBySlug(slug);
   if (place === null) notFound();
 
-  const { photos, summary } = await loadRankedPhotos(place.id, resolved.visitor.id, 7);
+  const { photos, summary } = await loadTopPhotos(place.id, resolved.visitor.id, 7);
   const [leader, ...rest] = photos;
 
   return (

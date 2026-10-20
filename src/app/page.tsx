@@ -8,7 +8,7 @@ import { VoteControls } from '@/components/photo/VoteControls';
 import { getConfig } from '@/lib/config';
 import { getFeaturedPlace } from '@/server/services/place';
 import { resolveVisitor, visitorDisplayLabel } from '@/server/auth/visitor';
-import { loadRankedPhotos } from '@/server/services/photo-query';
+import { loadTopPhotos } from '@/server/services/photo-query';
 import { formatScore } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
@@ -33,7 +33,7 @@ export default async function HomePage() {
   if (place === null) notFound();
 
   // The hero holds rank 01, so the wall below shows 02..04.
-  const { photos, summary } = await loadRankedPhotos(place.id, resolved.visitor.id, 4);
+  const { photos, summary } = await loadTopPhotos(place.id, resolved.visitor.id, 4);
   const [leader, ...rest] = photos;
 
   return (

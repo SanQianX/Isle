@@ -34,7 +34,7 @@ execFileSync(process.execPath, [prismaCli, 'migrate', 'deploy'], {
 });
 
 const { loadRankedPhotos } = await import('../src/server/services/photo-query.ts');
-const { listPlaces } = await import('../src/server/services/place.ts');
+const { listPlaces, getPlaceBySlug } = await import('../src/server/services/place.ts');
 
 const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
 
@@ -105,6 +105,7 @@ for (const count of [25, 100, 250, 500]) {
 
   await time(`${String(count).padEnd(8)}`, async () => loadRankedPhotos(big.id, author.id));
   await time('  (同批)', async () => listPlaces());
+  await time('  (同批)', async () => getPlaceBySlug('read-island'));
 }
 
 const votes = await prisma.vote.count();

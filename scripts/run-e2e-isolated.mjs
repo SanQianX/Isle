@@ -65,6 +65,32 @@ function assertSafeTemp(target) {
 // Node - splits the command line. This repo path contains a space, so an
 // unquoted argument is truncated at the space and the child dies with
 // ERR_MODULE_NOT_FOUND.
+/**
+ * Run a command, retrying a few times.
+ *
+ * Used for the Prisma CLI, which on Windows cannot replace its query engine
+ * while another process still has the file open. The failure is transient and
+ * unrelated to what is being tested, so retrying is the right response -- but
+ * the last attempt still propagates, so a genuine failure is never hidden.
+ */
+async function runWithRetry(command, args, options = {}, attempts = 3) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await run(command, args, options);
+    } catch (error) {
+      lastError = error;
+      const transient = /EPERM|EBUSY|rename/i.test(String(error?.message ?? error));
+      if (!transient || attempt === attempts) throw error;
+      console.warn(
+        `[run-e2e-isolated] ${command} ${args.join(' ')} was blocked (${attempt}/${attempts}); retrying`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
+    }
+  }
+  throw lastError;
+}
+
 const usesShell = process.platform === 'win32';
 
 function quoteForShell(arg) {
@@ -169,8 +195,12 @@ const hasMigrations = fs.existsSync(migrationsDir);
 try {
   if (hasMigrations) {
     console.log('[run-e2e-isolated] applying migrations to the isolated database…');
-    await run('npx', ['prisma', 'generate'], { quiet: false });
-    await run('npx', ['prisma', 'migrate', 'deploy'], { env });
+    // On Windows, prisma generate replaces the query engine DLL, and a stale
+    // process still holding it makes the rename fail with EPERM. A short retry
+    // clears it once the holder exits, and saves the whole run from failing for
+    // a reason that has nothing to do with the code under test.
+    await runWithRetry('npx', ['prisma', 'generate'], { env }, 3);
+    await runWithRetry('npx', ['prisma', 'migrate', 'deploy'], { env }, 3);
   } else {
     console.log(
       '[run-e2e-isolated] no prisma/migrations yet — skipping migrate/seed (expected until Phase 02).',
