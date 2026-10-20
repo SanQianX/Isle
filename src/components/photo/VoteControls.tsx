@@ -129,29 +129,49 @@ export function VoteControls({
   const disabled = inFlight || pending;
 
   return (
-    <div className={`vote-inline ${buttonClass}`.trim()} data-testid={`vote-${photoId}`}>
-      <button
-        type="button"
-        onClick={() => apply(1)}
-        disabled={disabled}
-        aria-pressed={vote === 1}
-        aria-label="赞成这张照片"
-        data-testid={`vote-up-${photoId}`}
-      >
-        ↑
-      </button>
-      <button
-        type="button"
-        onClick={() => apply(-1)}
-        disabled={disabled}
-        aria-pressed={vote === -1}
-        aria-label="反对这张照片"
-        data-testid={`vote-down-${photoId}`}
-      >
-        ↓
-      </button>
+    // The wrapper is a column so a failure can be *seen*. The error used to
+    // live only in the live region below, which is the screen-reader channel:
+    // a sighted user whose vote was refused saw the score snap back and
+    // nothing else. FRONTEND_UX §3.3 asks for visible success/error feedback
+    // on the vote control, and a message only a screen reader can hear is
+    // not feedback for most of the people using the site.
+    <div className={`vote-control ${buttonClass}`.trim()} data-testid={`vote-${photoId}`}>
+      <div className="vote-inline">
+        <button
+          type="button"
+          onClick={() => apply(1)}
+          disabled={disabled}
+          aria-pressed={vote === 1}
+          aria-label="赞成这张照片"
+          data-testid={`vote-up-${photoId}`}
+        >
+          ↑
+        </button>
+        <button
+          type="button"
+          onClick={() => apply(-1)}
+          disabled={disabled}
+          aria-pressed={vote === -1}
+          aria-label="反对这张照片"
+          data-testid={`vote-down-${photoId}`}
+        >
+          ↓
+        </button>
+      </div>
+
+      {error !== null ? (
+        <span
+          className="vote-error"
+          role="alert"
+          data-testid={`vote-error-${photoId}`}
+          title={error}
+        >
+          {error}
+        </span>
+      ) : null}
+
       <span className="sr-only" aria-live="polite" data-testid={`vote-status-${photoId}`}>
-        {error ?? `当前 ${formatScore(score)} 分`}
+        {`当前 ${formatScore(score)} 分`}
       </span>
     </div>
   );

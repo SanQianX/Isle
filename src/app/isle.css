@@ -194,3 +194,10 @@ header.site-header{position:relative;z-index:3;background:var(--hero);border-bot
 .brand{
   min-height:24px;
 }
+
+/* A vote that was refused has to be *seen*, not only heard.
+   The wrapper is a column so the message can sit under the two buttons
+   without disturbing the row they live in. */
+.vote-control{display:inline-flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:0}
+.vote-error{max-width:min(230px,42vw);text-align:right;font-size:11px;line-height:1.5;color:#a4452f}
+.lb-footer .vote-error{color:#f0b7a6}
