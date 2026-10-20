@@ -128,7 +128,17 @@ describe('visitor identity (ID-01..ID-05)', () => {
     const originalCode = ((await original.clone().json()) as { visitor: { displayCode: string } })
       .visitor.displayCode;
 
-    const tampered = `${readCookieToken(extractSetCookie(original) as string).slice(0, -2)}XY`;
+    // The replacement has to be guaranteed to differ from the original. A
+    // fixed "XY" replaces the last two characters with themselves one time in
+    // 4096 -- and then the "tampered" token is the original token, the server
+    // rightly hands back the same visitor, and the case fails for a reason
+    // that has nothing to do with what it is testing. It failed on CI exactly
+    // that way.
+    const originalToken = readCookieToken(extractSetCookie(original) as string);
+    const replacement = originalToken.endsWith('XY') ? 'ZZ' : 'XY';
+    const tampered = `${originalToken.slice(0, -2)}${replacement}`;
+    expect(tampered).not.toBe(originalToken);
+
     const response = await visitorRoute.GET(
       visitorRequest('/api/visitor', {
         headers: { cookie: visitorCookieHeader(COOKIE, tampered) },

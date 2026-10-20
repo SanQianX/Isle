@@ -100,7 +100,14 @@ test('a tampered cookie cannot impersonate the original visitor', async ({ page,
 
   const cookies = await context.cookies();
   const current = cookies.find((cookie) => cookie.name === 'isle_visitor');
-  const tampered = `${(current?.value ?? '').slice(0, -2)}XY`;
+  const originalToken = current?.value ?? '';
+  // The replacement has to be guaranteed to differ. A fixed "XY" is a no-op
+  // one time in 4096 -- the "tampered" cookie would be the original cookie,
+  // the server would rightly return the same visitor, and the case would
+  // fail for a reason unrelated to what it is about.
+  const replacement = originalToken.endsWith('XY') ? 'ZZ' : 'XY';
+  const tampered = `${originalToken.slice(0, -2)}${replacement}`;
+  expect(tampered).not.toBe(originalToken);
 
   await context.addCookies([
     {
