@@ -43,6 +43,27 @@ const appRoot = path.join(sandbox, 'app');
 const backupRoot = path.join(sandbox, 'backups');
 const restoreTarget = path.join(sandbox, 'restored');
 
+/**
+ * The reconciler prints its report as JSON and then a line of human advice,
+ * so the JSON has to be cut out of the output rather than parsed whole.
+ */
+function parseReport(output) {
+  const start = output.indexOf('{');
+  if (start === -1)
+    throw new Error(`no JSON report in:
+${output}`);
+  let depth = 0;
+  for (let index = start; index < output.length; index += 1) {
+    if (output[index] === '{') depth += 1;
+    else if (output[index] === '}') {
+      depth -= 1;
+      if (depth === 0) return JSON.parse(output.slice(start, index + 1));
+    }
+  }
+  throw new Error(`unterminated JSON report in:
+${output}`);
+}
+
 const steps = [];
 let failed = false;
 
@@ -245,6 +266,8 @@ try {
   console.log(dryOutput.trim());
   record('scripts/restore.sh verifies a good archive', dryOk);
 
+  const restoredDb = path.join(restoreTarget, 'db', 'isle.db');
+
   // --- 5. Restore into a fresh directory ---------------------------------
   console.log('\n=== restore: into an isolated directory ===');
   let restoreOk = true;
@@ -264,7 +287,6 @@ try {
 
   if (restoreOk) {
     // The restored database must hold the same rows.
-    const restoredDb = path.join(restoreTarget, 'db', 'isle.db');
     const restored = new PrismaClient({
       datasources: { db: { url: `file:${restoredDb.replace(/\\/g, '/')}` } },
     });
@@ -296,6 +318,79 @@ try {
       `${identical}/${expected.size}`,
     );
   }
+
+  // --- 7. The reconciler, on a deliberately orphaned original -----------
+  console.log('\n=== reconcile: an orphaned original can be adopted ===');
+  const restoredMedia = path.join(restoreTarget, 'media');
+  const orphanBytes = Buffer.concat([
+    await fs.readFile(path.join(repoRoot, 'tests', 'fixtures', 'landscape.jpg')),
+    Buffer.from('orphan'),
+  ]);
+  const orphanDigest = sha256(orphanBytes);
+  const orphanAbs = path.join(restoredMedia, 'original', orphanDigest.slice(0, 2));
+  await fs.mkdir(orphanAbs, { recursive: true });
+  await fs.writeFile(path.join(orphanAbs, `${orphanDigest.slice(2)}.jpg`), orphanBytes);
+  for (const size of [400, 1200]) {
+    const dir = path.join(restoredMedia, 'preview', String(size), orphanDigest.slice(0, 2));
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, `${orphanDigest.slice(2)}.webp`), orphanBytes);
+  }
+
+  const reconcileEnv = {
+    ...process.env,
+    DATABASE_URL: `file:${restoredDb.split(String.fromCharCode(92)).join('/')}`,
+  };
+  const reconcile = () =>
+    run(
+      'node',
+      [path.join(repoRoot, 'scripts', 'reconcile-storage.mjs'), '--media-root', restoredMedia],
+      reconcileEnv,
+    );
+
+  const beforeAdopt = parseReport(reconcile());
+  record(
+    'the reconciler reports the orphan',
+    beforeAdopt.orphanFileCount >= 1,
+    `${beforeAdopt.orphanFileCount} orphan(s)`,
+  );
+
+  const adopt = run(
+    'node',
+    [
+      path.join(repoRoot, 'scripts', 'reconcile-storage.mjs'),
+      '--media-root',
+      restoredMedia,
+      '--adopt',
+      '--place',
+      place.slug,
+    ],
+    reconcileEnv,
+  );
+  record('the reconciler adopts the orphan', adopt.includes('adopted 1 orphan original'));
+
+  const afterAdopt = parseReport(reconcile());
+  record(
+    'no orphan is left after adoption',
+    afterAdopt.orphanFileCount === 0,
+    `${afterAdopt.orphanFileCount} left`,
+  );
+
+  const adoptedRow = await (async () => {
+    const client = new PrismaClient({
+      datasources: { db: { url: `file:${restoredDb.split(String.fromCharCode(92)).join('/')}` } },
+    });
+    const row = await client.photo.findFirst({ where: { originalSha256: orphanDigest } });
+    await client.$disconnect();
+    return row;
+  })();
+  record(
+    'the adopted row carries the hash of the bytes on disk',
+    adoptedRow?.originalSha256 === orphanDigest,
+  );
+  record(
+    'the adopted row links both previews',
+    adoptedRow?.preview400Key !== null && adoptedRow?.preview1200Key !== null,
+  );
 
   // --- 6. A corrupted archive must be refused -----------------------------
   console.log('\n=== restore: a corrupted archive must be refused ===');
