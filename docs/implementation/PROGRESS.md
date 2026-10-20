@@ -447,3 +447,67 @@ npm audit --omit=dev                  → found 0 vulnerabilities
 **残留**：
 - 60 条 E2E 跳过：55 条视觉回归（需独立数据集）、4 条仅 Chromium 能做的 CDP 限速进度用例、1 条 WebKit 焦点归还断言。**每一条都在测试代码里写明了理由与替代断言**，没有一条是为了「让它变绿」而跳过的。
 - 仍未实机执行：Linux ABI 重建、nginx/systemd/TLS 实机、staging 整链路、Linux 权威视觉基线、Lighthouse。状态 `READY_NOT_DEPLOYED`。
+
+---
+
+## 加固轮次（二）— 让 CI 真的跑起来
+
+**状态**：PASSED
+**提交**：`bafa32b` … `a7e315a`（8 个 commit）
+**起因**：仓库配了远程、CI 工作流也提交了，但**一次都没跑成功过**——所有作业都在第一条命令 `npm ci` 上死掉。修好之后，它第一次真正执行了测试，于是暴露出六个本地永远看不见的问题。
+
+### 一、CI 之前为什么全灭
+
+`npm ci` 报 `Invalid Version:`。锁文件里有一条残缺条目：
+
+```json
+"node_modules/rollup/node_modules/@rollup/rollup-freebsd-x64": { "dev": true, "optional": true }
+```
+
+没有 `version`、没有 `resolved`、没有 `integrity`，而且顶层没有对应的 `@rollup/rollup-freebsd-x64`。npm 读不了它，`npm ci` 拒绝安装；连 `npm install --package-lock-only` 都修不了，因为锁文件正是它要读的东西。
+
+它是 FreeBSD 的平台专用可选二进制，Windows 和 Linux 都不需要它——所以这条坏条目在本地一直隐形：node_modules 是在它坏掉之前装的，之后每条本地命令都正常。
+
+**修法**：删掉残缺条目，让 npm 重新写出正确的顶层记录（顺带补上 tailwind wasm 构建里缺失的 bundled 依赖）。
+
+### 二、锁文件还绑在镜像上
+
+所有 `resolved` URL 都指向 `registry.npmmirror.com`，`npm ci` 会照着字面去访问它——GitHub runner 与部署服务器都不该依赖一个特定的镜像。项目 `.npmrc` 设 `replace-registry-host=always`：npm 把每个记录 URL 的主机改写成当前环境配置的 registry，路径保持不变（公共 registry 与常见镜像的路径一致，integrity 也一致）。同一份锁文件，在工作站上从镜像装，在 CI 上从公共 registry 装。
+
+锁文件改用 **npm 10.9.9**（Node 22 自带的那个版本）生成——npm 11 与 npm 10 对 peer 依赖的解析不同，npm 10 拒绝 npm 11 生成的锁文件。现已验证 npm 10 与 npm 11 都能解析。
+
+### 三、CI 第一次真正跑测试时暴露的六个问题
+
+| # | 问题 | 后果 |
+|---|---|---|
+| 1 | `tests/setup.ts` 的守卫在「变量未设置」时误报 | **Linux 上每个测试文件都在导入时抛错**，156 个单测一个都加载不了 |
+| 2 | 配置单测无条件断言 Windows 路径写法 | 在 Linux 上断言了一条产品**理应拒绝**的路径 |
+| 3 | 存储故障注入的 POSIX 分支给不存在的目录 chmod | 4 个用例在到达断言之前就 ENOENT |
+| 4 | `/proc` 当作「不存在的卷」 | 该用例在 CI 上**超时**，20 秒什么也没证明 |
+| 5 | 三处 `process.env.TEMP`（Windows 专有变量） | 三个 e2e 用例在 Linux 上找不到自己刚写的文件 |
+| 6 | `mobile-chrome` / `mobile-webkit` 被当作浏览器二进制安装 | 两个移动端作业什么都没装就死了 |
+
+第 1 条最值得记：守卫的本意是「拒绝跑在真实部署路径上的测试」，写法却是「路径不在临时目录下**且** MEDIA_ROOT 没设置」——两个变量都没设置时（正是 unit 作业的情形）它就成立。**一个只会在这台机器上被验证过的守卫，等于没有守卫。**
+
+第 3、4 条同源：故障注入的手法本身只在 Windows 上被验证过。POSIX 上要给目录改权限，就得先有那个目录——而应用是懒创建媒体子目录的。
+
+### 四、Linux 权威视觉基线
+
+仓库里**一张基线都没有**：Windows 副本在 gitignore 的 `local/` 目录，CI 每次都报「快照不存在」，同时把自己生成的图当 artifact 上传——而没有人看过。
+
+现在 CI 装上全部三个引擎，生成 55 张 Linux 基线，**目视审查后入库**（`e2e/__screenshots__/<project>/`）。可复现性已核对：页头随机访客码被遮罩，照片署名里的访客码来自种子的确定性派生。CI 任务**不做** `--update-snapshots`：缺基线就失败并上传生成的图等人看过（`docs/visual-baselines/APPROVED.md`）。
+
+### 五、最终 CI 结果
+
+<https://github.com/SanQianX/Isle/actions/runs/39406503899>（`a7e315a`，Ubuntu 24.04 / Node 22 / npm 10）
+
+| 作业 | 结果 |
+|---|---|
+| Lint, typecheck, audit | ✅ |
+| Unit tests（156） | ✅ |
+| Integration tests（149） | ✅ |
+| Production build | ✅ |
+| E2E（chromium / firefox / webkit / mobile-chrome / mobile-webkit） | ✅ ×5 |
+| Visual regression（55 张 Linux 基线） | ✅ |
+
+**Linux ABI 由此得到验证**（此前只在本机 Windows 上验证过）。覆盖率报告以 artifact 形式上传。

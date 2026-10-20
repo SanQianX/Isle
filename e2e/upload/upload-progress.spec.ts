@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type APIResponse, type Page } from '@playwright/test';
 import { waitForHydration } from '../support';
 
 /**
@@ -211,6 +211,32 @@ test('百分比是浏览器真实上报的字节比例，不是一个假装的�
   }
 });
 
+/**
+ * A request that may land on a stale keep-alive socket.
+ *
+ * The server closes an idle connection after its keep-alive timeout, and this
+ * case waits longer than that between two requests -- the twelve seconds of
+ * the injected delay plus the five seconds of the client timeout. If the
+ * client then reuses the closed socket, the request fails with ECONNRESET
+ * before a byte is sent. That is a race between the client and the server's
+ * idle timeout, not a product fault: the browser's own requests are not
+ * affected, and every real HTTP client retries it. This retries it too, and
+ * only that -- a genuine failure still fails.
+ */
+async function getWithStaleSocketRetry(page: Page, url: string): Promise<APIResponse> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await page.request.get(url);
+    } catch (error) {
+      const code = (error as { code?: string }).code ?? '';
+      const message = (error as Error).message ?? '';
+      const stale = code === 'ECONNRESET' || code === 'EPIPE' || message.includes('ECONNRESET');
+      if (!stale || attempt === 2) throw error;
+    }
+  }
+  throw new Error('unreachable');
+}
+
 test('连接一直不返回时，这一行会失败并给出重试入口', async ({ page }) => {
   test.setTimeout(120_000);
 
@@ -274,7 +300,9 @@ test('超时之后重试能成功，服务端只落一张', async ({ page }) => 
   await expect(row.locator('.upload-status')).toHaveText('已上传', { timeout: 60_000 });
 
   // 服务端只有一张：超时的那次没有留下半成品记录。
-  const listing = (await (await page.request.get(`/api/places/${place.id}/photos`)).json()) as {
+  const listing = (await (
+    await getWithStaleSocketRetry(page, `/api/places/${place.id}/photos`)
+  ).json()) as {
     items: Array<{ id: string }>;
     total: number;
   };

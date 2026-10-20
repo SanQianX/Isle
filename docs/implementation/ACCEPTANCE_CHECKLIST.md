@@ -66,16 +66,16 @@
 | T-09 | **PASS** | `upload-flow.spec.ts`：真实 multipart → 榜单可见 → 另一访客可见；上传后字节一致性 |
 | T-10 | **PASS** | `voting.spec.ts` 9 项 + 集成 22 项，含 20 并发 |
 | T-11 | **PASS** | 原图字节、下载、EXIF 方向（Orientation=6 落库为 1600×1200） |
-| T-12 | **部分 PASS** | `npm run test:visual` → **55 passed**（11 张基线 × 5 浏览器），连续三次运行完全一致（基线此前不可复现：pid 命名、同毫秒并列、跨浏览器项目共享数据库三个成因已修）。**权威基线仍需 Linux CI 生成**（ADR-007）；本地基线目录已 gitignore |
+| T-12 | **PASS** | `npm run test:visual` → **55 passed**（11 张基线 × 5 浏览器），**Linux 权威基线已生成、目视审查并入库**（`e2e/__screenshots__/<project>/`，55 张，见 `docs/visual-baselines/APPROVED.md`）；本地 Windows 副本仍写入 gitignore 的 `local/` 目录，两套互不污染（ADR-007）；本地基线目录已 gitignore |
 | T-13 | **PASS** | axe-core（WCAG 2.2 AA）扫描首页/列表/榜单/上传页/灯箱，**critical 与 serious 均为 0**；另有 alt、控件命名、`aria-pressed`、焦点可见、Tab 可达等 5 项专项 |
 | T-14 | **PASS** | 错误码覆盖 400/403/404/409/413/415/422/429/503；上传恶意文件、断网重试、磁盘写失败均有集成用例 |
-| T-15 | **NOT_RUN** | CI 工作流已提交（`.github/workflows/ci.yml`），但**无远程仓库、无法推送**，因此没有真实 CI run URL |
+| T-15 | **PASS** | **CI 首次实跑通过**：<https://github.com/SanQianX/Isle/actions/runs/39406503899>（`a7e315a`，Ubuntu 24.04 / Node 22 / npm 10）。10 个作业全绿：lint+typecheck+format+audit、156 unit、149 integration、production build、5 个浏览器项目的 E2E、55 张 Linux 视觉基线。覆盖率报告以 artifact 形式上传 |
 
 ## 5. 生产化与上线
 
 | ID | 状态 | 证据 |
 |---|---|---|
-| O-01 | **部分** | `next build` 产出 standalone 并通过 E2E 启动验证。**Linux ABI 下未重建**（本机为 Windows） |
+| O-01 | **PASS** | `next build` 产出 standalone 并通过 E2E 启动验证；**Linux ABI 下已由 CI 重建并跑通全部测试**（run 39406503899，`ubuntu-latest` + Node 22） |
 | O-02 | **NOT_RUN** | `deploy/nginx/isle.conf` / `isle-limits.conf` 已写；`nginx -t`、TLS、413、429 未在真实主机验证 |
 | O-03 | **NOT_RUN** | `deploy/systemd/isle.service` 已写（含完整 hardening）；未在真实 systemd 上验证 |
 | O-04 | **PASS（结构）** | DB 与 media 位于 `/var/lib/isle`，与 `/opt/isle/releases/<sha>` 完全分离；`deploy.sh` 只切换 `current` 符号链接 |
